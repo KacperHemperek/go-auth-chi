@@ -11,11 +11,10 @@ import (
 func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("welcome"))
-	})
 
 	r.Post("/auth/register", registerHandler)
+	r.Post("/auth/login", loginHandler)
+	r.Get("/auth/me", getMeHandler)
 	fmt.Println("Server is running on port 2137")
 	http.ListenAndServe(":2137", r)
 }

@@ -55,3 +55,30 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 
 	writeJSONResponse(w, http.StatusOK, map[string]any{"message": "User registered successfully", "user": user})
 }
+
+func loginHandler(w http.ResponseWriter, r *http.Request) {
+	type loginRequest struct {
+		Email    string `json:"email" validate:"required"`
+		Password string `json:"password" validate:"required"`
+	}
+
+	req := &loginRequest{}
+	if err := readAndValidateJSON(w, r, req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]any{"message": "User logged in successfully"})
+}
+
+func getMeHandler(w http.ResponseWriter, _ *http.Request) {
+	user := &UserModel{
+		ID:        1,
+		Email:     "kacper@hemp.com",
+		Password:  "",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	writeJSONResponse(w, http.StatusOK, map[string]any{"user": user})
+}
