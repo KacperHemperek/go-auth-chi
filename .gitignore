@@ -20,3 +20,6 @@ go.work.sum
 .env
 # Air
 tmp/
+
+# Local development
+database/
