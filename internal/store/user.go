@@ -3,10 +3,12 @@ package store
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var (
@@ -16,9 +18,51 @@ var (
 type User struct {
 	ID        string    `json:"id" db:"id"`
 	Email     string    `json:"email" db:"email"`
-	Password  []byte    `json:"-" db:"password"`
+	Password  password  `json:"-" db:"password"`
 	CreatedAt time.Time `json:"createdAt" db:"created_at"`
 	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
+}
+
+type password struct {
+	plain *string
+	hash  []byte
+}
+
+func (p *password) Set(plainText string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(plainText), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	p.plain = &plainText
+	p.hash = hash
+	return nil
+}
+
+func (p *password) Compare(plainText string) bool {
+	return bcrypt.CompareHashAndPassword(p.hash, []byte(plainText)) == nil
+}
+
+func (p *password) Scan(value any) error {
+	if value == nil {
+		p.hash = nil
+		return nil
+	}
+
+	switch v := value.(type) {
+	case []byte:
+		p.hash = v
+		return nil
+	default:
+		return errors.New("invalid password data type")
+	}
+}
+
+func (p password) Value() (driver.Value, error) {
+	if len(p.hash) == 0 {
+		return nil, nil
+	}
+	return p.hash, nil
 }
 
 type UserStore struct {

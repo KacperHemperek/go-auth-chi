@@ -7,8 +7,8 @@ import (
 	_ "github.com/lib/pq"
 )
 
-func NewPostgres() (*sqlx.DB, error) {
-	db, err := sqlx.Connect("postgres", "user=postgres password=postgres dbname=postgres port=5432 sslmode=disable")
+func NewPostgres(dsn string) (*sqlx.DB, error) {
+	db, err := sqlx.Connect("postgres", dsn)
 	if err != nil {
 		return nil, err
 	}
