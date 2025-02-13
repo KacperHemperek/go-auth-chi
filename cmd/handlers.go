@@ -175,5 +175,6 @@ func logoutHandler(s *store.Storage) http.HandlerFunc {
 		http.SetCookie(w, cookie)
 
 		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "User logged out successfully"})
+		return
 	}
 }
