@@ -36,6 +36,7 @@ func (s *SessionStore) Create(ctx context.Context, session *Session) (string, er
 
 	token := auth.GenerateToken()
 	session.Token = token
+	session.ExpiresAt = time.Now().Add(24 * time.Hour)
 
 	_, err := s.db.NamedQueryContext(ctx, query, session)
 	if err != nil {

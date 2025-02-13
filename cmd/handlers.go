@@ -2,7 +2,9 @@ package main
 
 import (
 	"net/http"
+	"time"
 
+	"github.com/kacperhemperek/go-auth-chi/internal/auth"
 	"github.com/kacperhemperek/go-auth-chi/internal/store"
 )
 
@@ -14,21 +16,29 @@ func registerHandler(s *store.Storage) http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
+		sessCookie, err := r.Cookie("session")
+		if err == nil {
+			_, err := s.Session.ValidateSession(r.Context(), sessCookie.Value)
+			if err == nil {
+				writeJSONError(w, http.StatusBadRequest, "User already logged in")
+				return
+			}
+		}
 		req := &registerRequest{}
 		if err := readAndValidateJSON(w, r, req); err != nil {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
-		user := &store.User{
+		newUser := &store.User{
 			Email: req.Email,
 		}
-		if err := user.Password.Set(req.Password); err != nil {
+		if err := newUser.Password.Set(req.Password); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
-		err := s.User.Create(r.Context(), user)
+		err = s.User.Create(r.Context(), newUser)
 		if err != nil && err != store.ErrDuplicateEmail {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -37,6 +47,29 @@ func registerHandler(s *store.Storage) http.HandlerFunc {
 			writeJSONError(w, http.StatusBadRequest, "Email already taken")
 			return
 		}
+		user, err := s.User.GetByEmail(r.Context(), req.Email)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		token, err := s.Session.Create(
+			r.Context(),
+			&store.Session{
+				UserID:    user.ID,
+				IPAddress: r.RemoteAddr,
+				UserAgent: r.UserAgent(),
+				ExpiresAt: time.Now().Add(24 * time.Hour),
+			},
+		)
+
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		cookie := auth.NewSessionCookie(token)
+		http.SetCookie(w, cookie)
 
 		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "User registered successfully"})
 	}
@@ -50,6 +83,15 @@ func loginHandler(s *store.Storage) http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
+		sessCookie, err := r.Cookie("session")
+		if err == nil {
+			_, err := s.Session.ValidateSession(r.Context(), sessCookie.Value)
+			if err == nil {
+				writeJSONError(w, http.StatusBadRequest, "User already logged in")
+				return
+			}
+		}
+
 		req := &loginRequest{}
 		if err := readAndValidateJSON(w, r, req); err != nil {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -71,13 +113,47 @@ func loginHandler(s *store.Storage) http.HandlerFunc {
 			return
 		}
 
-		writeJSONResponse(w, http.StatusOK, map[string]any{"user": user, "message": "User logged in successfully"})
+		token, err := s.Session.Create(
+			r.Context(),
+			&store.Session{
+				UserID:    user.ID,
+				IPAddress: r.RemoteAddr,
+				UserAgent: r.UserAgent(),
+				ExpiresAt: time.Now().Add(24 * time.Hour),
+			},
+		)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		cookie := auth.NewSessionCookie(token)
+		http.SetCookie(w, cookie)
+
+		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "User logged in successfully"})
 	}
 }
 
-func getMeHandler(_ *store.Storage) http.HandlerFunc {
+func getMeHandler(s *store.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user := "user"
+		token, err := r.Cookie("session")
+		if err != nil {
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+			return
+		}
+		session, err := s.Session.ValidateSession(r.Context(), token.Value)
+		if err != nil {
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+			return
+		}
+
+		user, err := s.User.GetByID(r.Context(), session.UserID)
+
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
 		writeJSONResponse(w, http.StatusOK, map[string]any{"user": user})
 	}
 }
