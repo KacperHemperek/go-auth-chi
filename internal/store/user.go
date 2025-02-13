@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"database/sql/driver"
 	"errors"
 	"time"
 
@@ -37,28 +36,6 @@ func (p *password) Set(plainText string) error {
 
 func (p *password) Compare(plainText string) bool {
 	return bcrypt.CompareHashAndPassword(*p, []byte(plainText)) == nil
-}
-
-func (p *password) Scan(value any) error {
-	if value == nil {
-		*p = nil
-		return nil
-	}
-
-	switch v := value.(type) {
-	case []byte:
-		*p = v
-		return nil
-	default:
-		return errors.New("invalid password data type")
-	}
-}
-
-func (p password) Value() (driver.Value, error) {
-	if len(p) == 0 {
-		return nil, nil
-	}
-	return []byte(p), nil
 }
 
 type UserStore struct {
