@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/kacperhemperek/go-auth-chi/internal/store"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func registerHandler(s *store.Storage) http.HandlerFunc {
@@ -21,17 +20,15 @@ func registerHandler(s *store.Storage) http.HandlerFunc {
 			return
 		}
 
-		bytePass := []byte(req.Password)
-		hash, err := bcrypt.GenerateFromPassword(bytePass, bcrypt.DefaultCost)
-		if err != nil {
+		user := &store.User{
+			Email: req.Email,
+		}
+		if err := user.Password.Set(req.Password); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
-		err = s.User.Create(r.Context(), &store.User{
-			Email:    req.Email,
-			Password: hash,
-		})
+		err := s.User.Create(r.Context(), user)
 		if err != nil && err != store.ErrDuplicateEmail {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -69,8 +66,7 @@ func loginHandler(s *store.Storage) http.HandlerFunc {
 			return
 		}
 
-		err = bcrypt.CompareHashAndPassword(user.Password, []byte(req.Password))
-		if err != nil {
+		if !user.Password.Compare(req.Password) {
 			writeJSONError(w, http.StatusUnauthorized, "Invalid email or password")
 			return
 		}

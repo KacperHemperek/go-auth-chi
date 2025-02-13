@@ -14,7 +14,7 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
-	db, err := db.NewPostgres()
+	db, err := db.NewPostgres("postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")
 	if err != nil {
 		fmt.Println("Error connecting to the database")
 		return
