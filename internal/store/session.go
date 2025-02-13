@@ -36,7 +36,7 @@ func (s *SessionStore) Create(ctx context.Context, session *Session) (string, er
 
 	token := auth.GenerateToken()
 	session.Token = token
-	session.ExpiresAt = time.Now().Add(auth.SESSION_DURATION)
+	session.ExpiresAt = time.Now().Add(auth.SessionDuration)
 
 	_, err := s.db.NamedQueryContext(ctx, query, session)
 	if err != nil {
@@ -46,7 +46,7 @@ func (s *SessionStore) Create(ctx context.Context, session *Session) (string, er
 	return token, nil
 }
 
-func (s *SessionStore) ValidateSession(ctx context.Context, token string) (*Session, error) {
+func (s *SessionStore) Validate(ctx context.Context, token string) (*Session, error) {
 	query := `
 		SELECT * FROM sessions 
     WHERE token = $1 AND expires_at > NOW()
@@ -67,4 +67,20 @@ func (s *SessionStore) ValidateSession(ctx context.Context, token string) (*Sess
 	}
 
 	return session, nil
+}
+
+func (s *SessionStore) Delete(ctx context.Context, token string) error {
+	query := `
+		DELETE FROM sessions WHERE token = $1
+	`
+
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
+	defer cancel()
+
+	_, err := s.db.ExecContext(ctx, query, token)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	SESSION_DURATION = 7 * 24 * time.Hour
+	SessionDuration = 7 * 24 * time.Hour
 )
 
 type Hashed []byte
@@ -51,7 +51,7 @@ func baseCookie(token string, expiresAt time.Time) *http.Cookie {
 }
 
 func NewSessionCookie(token string) *http.Cookie {
-	return baseCookie(token, time.Now().Add(SESSION_DURATION))
+	return baseCookie(token, time.Now().Add(SessionDuration))
 }
 
 func DeleteSessionCookie() *http.Cookie {

@@ -22,7 +22,8 @@ type Storage struct {
 	}
 	Session interface {
 		Create(ctx context.Context, session *Session) (token string, err error)
-		ValidateSession(ctx context.Context, token string) (*Session, error)
+		Validate(ctx context.Context, token string) (*Session, error)
+		Delete(ctx context.Context, token string) error
 	}
 }
 
