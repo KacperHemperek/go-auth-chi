@@ -23,10 +23,7 @@ type User struct {
 	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
 }
 
-type password struct {
-	plain *string
-	hash  []byte
-}
+type password []byte
 
 func (p *password) Set(plainText string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(plainText), bcrypt.DefaultCost)
@@ -34,24 +31,23 @@ func (p *password) Set(plainText string) error {
 		return err
 	}
 
-	p.plain = &plainText
-	p.hash = hash
+	*p = hash
 	return nil
 }
 
 func (p *password) Compare(plainText string) bool {
-	return bcrypt.CompareHashAndPassword(p.hash, []byte(plainText)) == nil
+	return bcrypt.CompareHashAndPassword(*p, []byte(plainText)) == nil
 }
 
 func (p *password) Scan(value any) error {
 	if value == nil {
-		p.hash = nil
+		*p = nil
 		return nil
 	}
 
 	switch v := value.(type) {
 	case []byte:
-		p.hash = v
+		*p = v
 		return nil
 	default:
 		return errors.New("invalid password data type")
@@ -59,10 +55,10 @@ func (p *password) Scan(value any) error {
 }
 
 func (p password) Value() (driver.Value, error) {
-	if len(p.hash) == 0 {
+	if len(p) == 0 {
 		return nil, nil
 	}
-	return p.hash, nil
+	return []byte(p), nil
 }
 
 type UserStore struct {
