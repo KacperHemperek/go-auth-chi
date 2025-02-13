@@ -1,6 +1,8 @@
 package db
 
 import (
+	"fmt"
+
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 )
@@ -14,6 +16,8 @@ func NewPostgres() (*sqlx.DB, error) {
 	if err = db.Ping(); err != nil {
 		return nil, err
 	}
+
+	fmt.Println("Connected to the database")
 
 	return db, nil
 }
