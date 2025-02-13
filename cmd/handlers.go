@@ -18,7 +18,7 @@ func registerHandler(s *store.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sessCookie, err := r.Cookie("session")
 		if err == nil {
-			_, err := s.Session.ValidateSession(r.Context(), sessCookie.Value)
+			_, err := s.Session.Validate(r.Context(), sessCookie.Value)
 			if err == nil {
 				writeJSONError(w, http.StatusBadRequest, "User already logged in")
 				return
@@ -85,7 +85,7 @@ func loginHandler(s *store.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sessCookie, err := r.Cookie("session")
 		if err == nil {
-			_, err := s.Session.ValidateSession(r.Context(), sessCookie.Value)
+			_, err := s.Session.Validate(r.Context(), sessCookie.Value)
 			if err == nil {
 				writeJSONError(w, http.StatusBadRequest, "User already logged in")
 				return
@@ -141,7 +141,7 @@ func getMeHandler(s *store.Storage) http.HandlerFunc {
 			writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
 			return
 		}
-		session, err := s.Session.ValidateSession(r.Context(), token.Value)
+		session, err := s.Session.Validate(r.Context(), token.Value)
 		if err != nil {
 			writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
 			return
@@ -155,5 +155,25 @@ func getMeHandler(s *store.Storage) http.HandlerFunc {
 		}
 
 		writeJSONResponse(w, http.StatusOK, map[string]any{"user": user})
+	}
+}
+
+func logoutHandler(s *store.Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token, err := r.Cookie("session")
+		if err != nil {
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+			return
+		}
+		err = s.Session.Delete(r.Context(), token.Value)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		cookie := auth.DeleteSessionCookie()
+		http.SetCookie(w, cookie)
+
+		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "User logged out successfully"})
 	}
 }

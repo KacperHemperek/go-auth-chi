@@ -17,6 +17,7 @@ func main() {
 	db, err := db.NewPostgres("postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")
 	if err != nil {
 		fmt.Println("Error connecting to the database")
+		fmt.Println(err)
 		return
 	}
 	storage := store.NewStorage(db)
@@ -24,6 +25,8 @@ func main() {
 	r.Post("/auth/register", registerHandler(storage))
 	r.Post("/auth/login", loginHandler(storage))
 	r.Get("/auth/me", getMeHandler(storage))
+	r.Post("/auth/logout", logoutHandler(storage))
+
 	fmt.Println("Server is running on port 2137")
 	http.ListenAndServe(":2137", r)
 }
