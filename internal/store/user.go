@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	"golang.org/x/crypto/bcrypt"
+	auth "github.com/kacperhemperek/go-auth-chi/internal/auth"
 )
 
 var (
@@ -15,27 +15,11 @@ var (
 )
 
 type User struct {
-	ID        string    `json:"id" db:"id"`
-	Email     string    `json:"email" db:"email"`
-	Password  password  `json:"-" db:"password"`
-	CreatedAt time.Time `json:"createdAt" db:"created_at"`
-	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
-}
-
-type password []byte
-
-func (p *password) Set(plainText string) error {
-	hash, err := bcrypt.GenerateFromPassword([]byte(plainText), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-
-	*p = hash
-	return nil
-}
-
-func (p *password) Compare(plainText string) bool {
-	return bcrypt.CompareHashAndPassword(*p, []byte(plainText)) == nil
+	ID        string      `json:"id" db:"id"`
+	Email     string      `json:"email" db:"email"`
+	Password  auth.Hashed `json:"-" db:"password"`
+	CreatedAt time.Time   `json:"createdAt" db:"created_at"`
+	UpdatedAt time.Time   `json:"updatedAt" db:"updated_at"`
 }
 
 type UserStore struct {

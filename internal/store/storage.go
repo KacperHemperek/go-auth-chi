@@ -20,10 +20,15 @@ type Storage struct {
 		GetByID(ctx context.Context, id string) (*User, error)
 		GetByEmail(ctx context.Context, email string) (*User, error)
 	}
+	Session interface {
+		Create(ctx context.Context, session *Session) (token string, err error)
+		ValidateSession(ctx context.Context, token string) (*Session, error)
+	}
 }
 
 func NewStorage(db *sqlx.DB) *Storage {
 	return &Storage{
-		User: &UserStore{db: db},
+		User:    &UserStore{db: db},
+		Session: &SessionStore{db: db},
 	}
 }
