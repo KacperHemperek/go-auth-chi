@@ -9,6 +9,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+var (
+	SESSION_DURATION = 7 * 24 * time.Hour
+)
+
 type Hashed []byte
 
 func (p *Hashed) Set(plainText string) error {
@@ -47,7 +51,7 @@ func baseCookie(token string, expiresAt time.Time) *http.Cookie {
 }
 
 func NewSessionCookie(token string) *http.Cookie {
-	return baseCookie(token, time.Now().Add(24*time.Hour))
+	return baseCookie(token, time.Now().Add(SESSION_DURATION))
 }
 
 func DeleteSessionCookie() *http.Cookie {
