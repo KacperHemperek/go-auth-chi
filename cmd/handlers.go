@@ -5,10 +5,11 @@ import (
 	"time"
 
 	"github.com/kacperhemperek/go-auth-chi/internal/auth"
+	"github.com/kacperhemperek/go-auth-chi/internal/mailer"
 	"github.com/kacperhemperek/go-auth-chi/internal/store"
 )
 
-func registerHandler(s *store.Storage) http.HandlerFunc {
+func registerHandler(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 	type registerRequest struct {
 		Email           string `json:"email" validate:"required,min=3,max=255,email"`
 		Password        string `json:"password" validate:"required,min=8,max=30"`
@@ -67,6 +68,10 @@ func registerHandler(s *store.Storage) http.HandlerFunc {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+
+		// TODO: create a verification token and pass it to the SendVerificationEmail method
+
+		m.SendVerificationEmail(user.Email, token)
 
 		cookie := auth.NewSessionCookie(token)
 		http.SetCookie(w, cookie)
