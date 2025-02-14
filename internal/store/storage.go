@@ -25,11 +25,17 @@ type Storage struct {
 		Validate(ctx context.Context, token string) (*Session, error)
 		Delete(ctx context.Context, token string) error
 	}
+	Token interface {
+		Create(ctx context.Context, token *Token) (string, error)
+		Validate(ctx context.Context, tokenStr, userID string) (*Token, error)
+		Delete(ctx context.Context, token string) error
+	}
 }
 
 func NewStorage(db *sqlx.DB) *Storage {
 	return &Storage{
 		User:    &UserStore{db: db},
 		Session: &SessionStore{db: db},
+		Token:   &TokenStore{db: db},
 	}
 }
