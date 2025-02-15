@@ -17,8 +17,7 @@ type Token struct {
 	UserID    string    `json:"userId" db:"user_id"`
 	Token     string    `json:"token" db:"token"`
 	ExpiresAt time.Time `json:"expiresAt" db:"expires_at"`
-	CreatedAt time.Time `json:"createdAt" db:"created_at"`
-	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
+	DbTimestamps
 }
 
 type TokenStore struct {

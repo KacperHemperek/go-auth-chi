@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 
 	"github.com/jmoiron/sqlx"
 	auth "github.com/kacperhemperek/go-auth-chi/internal/auth"
@@ -15,12 +14,10 @@ var (
 )
 
 type User struct {
-	ID            string      `json:"id" db:"id"`
+	BaseEntity
 	Email         string      `json:"email" db:"email"`
 	Password      auth.Hashed `json:"-" db:"password"`
 	EmailVerified bool        `json:"emailVerified" db:"email_verified"`
-	CreatedAt     time.Time   `json:"createdAt" db:"created_at"`
-	UpdatedAt     time.Time   `json:"updatedAt" db:"updated_at"`
 }
 
 type UserStore struct {
