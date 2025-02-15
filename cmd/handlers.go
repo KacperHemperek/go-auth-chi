@@ -181,6 +181,16 @@ func getMeHandler(s *store.Storage) http.HandlerFunc {
 
 func logoutHandler(s *store.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		token, err := r.Cookie("session")
+		if err != nil {
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
+			return
+		}
+		err = s.Session.Delete(r.Context(), token.Value, nil)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 
 		cookie := auth.DeleteSessionCookie()
 		http.SetCookie(w, cookie)
