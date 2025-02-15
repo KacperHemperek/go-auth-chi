@@ -24,11 +24,18 @@ func main() {
 	storage := store.NewStorage(db)
 	mailer := mailer.New()
 
-	r.Post("/auth/register", registerHandler(storage, mailer))
-	r.Post("/auth/login", loginHandler(storage))
-	r.Get("/auth/me", getMeHandler(storage))
-	r.Post("/auth/logout", logoutHandler(storage))
-	r.Put("/auth/verify/{token}", verifyEmail(storage))
+	r.Route("/auth", func(r chi.Router) {
+		r.Post("/register", registerHandler(storage, mailer))
+		r.Post("/login", loginHandler(storage))
+		r.Put("/verify/{token}", verifyEmail(storage))
+
+		// Protected routes
+		r.Group(func(r chi.Router) {
+			r.Use(authMiddleware(storage))
+			r.Get("/me", getMeHandler(storage))
+			r.Post("/logout", logoutHandler(storage))
+		})
+	})
 
 	fmt.Println("Server is running on port 2137")
 	http.ListenAndServe(":2137", r)
