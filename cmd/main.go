@@ -28,6 +28,7 @@ func main() {
 	r.Post("/auth/login", loginHandler(storage))
 	r.Get("/auth/me", getMeHandler(storage))
 	r.Post("/auth/logout", logoutHandler(storage))
+	r.Put("/auth/verify/{token}", verifyEmail(storage))
 
 	fmt.Println("Server is running on port 2137")
 	http.ListenAndServe(":2137", r)

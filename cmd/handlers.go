@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/jmoiron/sqlx"
 	"github.com/kacperhemperek/go-auth-chi/internal/auth"
 	"github.com/kacperhemperek/go-auth-chi/internal/mailer"
 	"github.com/kacperhemperek/go-auth-chi/internal/store"
@@ -39,7 +41,18 @@ func registerHandler(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			return
 		}
 
-		err = s.User.Create(r.Context(), newUser)
+		tx, err := s.Transaction.Begin()
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		defer func(tx *sqlx.Tx) {
+			if err != nil {
+				s.Transaction.Rollback(tx)
+			}
+		}(tx)
+
+		err = s.User.Create(r.Context(), newUser, tx)
 		if err != nil && err != store.ErrDuplicateEmail {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -62,6 +75,7 @@ func registerHandler(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 				UserAgent: r.UserAgent(),
 				ExpiresAt: time.Now().Add(24 * time.Hour),
 			},
+			tx,
 		)
 
 		if err != nil {
@@ -69,10 +83,28 @@ func registerHandler(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			return
 		}
 
-		// TODO: create a verification token and pass it to the SendVerificationEmail method
+		validationToken, err := s.Token.Create(
+			r.Context(),
+			&store.Token{
+				UserID: user.ID,
+			},
+			tx,
+		)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 
-		m.SendVerificationEmail(user.Email, token)
+		err = s.Transaction.Commit(tx)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 
+		err = m.SendVerificationEmail(user.Email, validationToken)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+		}
 		cookie := auth.NewSessionCookie(token)
 		http.SetCookie(w, cookie)
 
@@ -126,6 +158,7 @@ func loginHandler(s *store.Storage) http.HandlerFunc {
 				UserAgent: r.UserAgent(),
 				ExpiresAt: time.Now().Add(24 * time.Hour),
 			},
+			nil,
 		)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
@@ -170,7 +203,7 @@ func logoutHandler(s *store.Storage) http.HandlerFunc {
 			writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
 			return
 		}
-		err = s.Session.Delete(r.Context(), token.Value)
+		err = s.Session.Delete(r.Context(), token.Value, nil)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -180,6 +213,43 @@ func logoutHandler(s *store.Storage) http.HandlerFunc {
 		http.SetCookie(w, cookie)
 
 		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "User logged out successfully"})
+		return
+	}
+}
+
+func verifyEmail(s *store.Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tokenStr := chi.URLParam(r, "token")
+
+		if tokenStr == "" {
+			writeJSONError(w, http.StatusBadRequest, "Token is required")
+			return
+		}
+
+		token, err := s.Token.Validate(r.Context(), tokenStr)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "Invalid token")
+			return
+		}
+		user, err := s.User.GetByID(r.Context(), token.UserID)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		user.EmailVerified = true
+		_, err = s.User.Update(r.Context(), user, nil)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		err = s.Token.Delete(r.Context(), token.Token, nil)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "Email verified successfully"})
 		return
 	}
 }
