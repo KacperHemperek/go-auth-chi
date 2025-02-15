@@ -12,7 +12,8 @@ import (
 )
 
 var (
-	SessionDuration = 7 * 24 * time.Hour
+	SessionDuration         = 7 * 24 * time.Hour
+	SessionRefreshThreshold = SessionDuration / 2
 )
 
 const (

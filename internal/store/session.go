@@ -93,3 +93,26 @@ func (s *SessionStore) Delete(ctx context.Context, token string, tx *sqlx.Tx) er
 
 	return nil
 }
+
+func (s *SessionStore) Refresh(ctx context.Context, oldToken string) (string, error) {
+	query := `
+		UPDATE sessions
+		SET token = $1, expires_at = $2
+		WHERE token = $3
+	`
+
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
+	defer cancel()
+
+	token, err := auth.GenerateSecureToken(auth.SessionTokenBytes)
+	if err != nil {
+		return "", err
+	}
+
+	_, err = s.db.ExecContext(ctx, query, token, time.Now().Add(auth.SessionDuration), oldToken)
+	if err != nil {
+		return "", err
+	}
+
+	return token, nil
+}
