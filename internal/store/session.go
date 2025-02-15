@@ -24,11 +24,10 @@ type SessionStore struct {
 	db *sqlx.DB
 }
 
-func (s *SessionStore) Create(ctx context.Context, session *Session) (string, error) {
+func (s *SessionStore) Create(ctx context.Context, session *Session, tx *sqlx.Tx) (string, error) {
 	query := `
 		INSERT INTO sessions (user_id, token, expires_at, ip_address, user_agent)
 		VALUES (:user_id, :token, :expires_at, :ip_address, :user_agent)
-		RETURNING token
 	`
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
@@ -38,7 +37,12 @@ func (s *SessionStore) Create(ctx context.Context, session *Session) (string, er
 	session.Token = token
 	session.ExpiresAt = time.Now().Add(auth.SessionDuration)
 
-	_, err := s.db.NamedQueryContext(ctx, query, session)
+	var err error
+	if tx != nil {
+		_, err = tx.NamedExecContext(ctx, query, session)
+	} else {
+		_, err = s.db.NamedExecContext(ctx, query, session)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -69,7 +73,7 @@ func (s *SessionStore) Validate(ctx context.Context, token string) (*Session, er
 	return session, nil
 }
 
-func (s *SessionStore) Delete(ctx context.Context, token string) error {
+func (s *SessionStore) Delete(ctx context.Context, token string, tx *sqlx.Tx) error {
 	query := `
 		DELETE FROM sessions WHERE token = $1
 	`
@@ -77,7 +81,12 @@ func (s *SessionStore) Delete(ctx context.Context, token string) error {
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
 	defer cancel()
 
-	_, err := s.db.ExecContext(ctx, query, token)
+	var err error
+	if tx != nil {
+		_, err = tx.ExecContext(ctx, query, token)
+	} else {
+		_, err = s.db.ExecContext(ctx, query, token)
+	}
 	if err != nil {
 		return err
 	}

@@ -25,11 +25,10 @@ type TokenStore struct {
 	db *sqlx.DB
 }
 
-func (s *TokenStore) Create(ctx context.Context, token *Token) (string, error) {
+func (s *TokenStore) Create(ctx context.Context, token *Token, tx *sqlx.Tx) (string, error) {
 	query := `
 		INSERT INTO tokens (user_id, token, expires_at)
 		VALUES (:user_id, :token, :expires_at)
-		RETURNING token
 	`
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
@@ -39,7 +38,12 @@ func (s *TokenStore) Create(ctx context.Context, token *Token) (string, error) {
 	token.Token = verificationToken
 	token.ExpiresAt = time.Now().Add(TokenDuration)
 
-	_, err := s.db.NamedQueryContext(ctx, query, token)
+	var err error
+	if tx != nil {
+		_, err = tx.NamedExecContext(ctx, query, token)
+	} else {
+		_, err = s.db.NamedExecContext(ctx, query, token)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -47,17 +51,17 @@ func (s *TokenStore) Create(ctx context.Context, token *Token) (string, error) {
 	return verificationToken, nil
 }
 
-func (s *TokenStore) Validate(ctx context.Context, tokenStr, userID string) (*Token, error) {
+func (s *TokenStore) Validate(ctx context.Context, tokenStr string) (*Token, error) {
 	query := `
 		SELECT * FROM tokens 
-    WHERE token = $1 AND expires_at > NOW() AND user_id = $2
+    WHERE token = $1 AND expires_at > NOW()
 	`
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
 	defer cancel()
 
-	session := &Token{}
-	err := s.db.GetContext(ctx, session, query, tokenStr, userID)
+	token := &Token{}
+	err := s.db.GetContext(ctx, token, query, tokenStr)
 	if err != nil {
 		switch err {
 		case sql.ErrNoRows:
@@ -67,18 +71,23 @@ func (s *TokenStore) Validate(ctx context.Context, tokenStr, userID string) (*To
 		}
 	}
 
-	return session, nil
+	return token, nil
 }
 
-func (s *TokenStore) Delete(ctx context.Context, token string) error {
+func (s *TokenStore) Delete(ctx context.Context, token string, tx *sqlx.Tx) error {
 	query := `
-		DELETE FROM sessions WHERE token = $1
+		DELETE FROM tokens WHERE token = $1
 	`
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
 	defer cancel()
 
-	_, err := s.db.ExecContext(ctx, query, token)
+	var err error
+	if tx != nil {
+		_, err = tx.ExecContext(ctx, query, token)
+	} else {
+		_, err = s.db.ExecContext(ctx, query, token)
+	}
 	if err != nil {
 		return err
 	}
