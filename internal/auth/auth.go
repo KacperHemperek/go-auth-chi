@@ -3,6 +3,8 @@ package auth
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -11,6 +13,11 @@ import (
 
 var (
 	SessionDuration = 7 * 24 * time.Hour
+)
+
+const (
+	SessionTokenBytes = 32
+	EmailTokenBytes   = 64
 )
 
 type Hashed []byte
@@ -29,13 +36,18 @@ func (p *Hashed) Compare(plainText string) bool {
 	return bcrypt.CompareHashAndPassword(*p, []byte(plainText)) == nil
 }
 
-func GenerateToken() string {
-	token := make([]byte, 32)
+func GenerateSecureToken(n int) (string, error) {
+	if n <= 0 {
+		return "", errors.New("token length must be greater than 0")
+	}
+
+	token := make([]byte, n)
 	_, err := rand.Read(token)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("failed to generate secure token: %w", err)
 	}
-	return base64.URLEncoding.EncodeToString(token)
+
+	return base64.URLEncoding.EncodeToString(token), nil
 }
 
 func baseCookie(token string, expiresAt time.Time) *http.Cookie {

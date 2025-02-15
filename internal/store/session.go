@@ -31,11 +31,13 @@ func (s *SessionStore) Create(ctx context.Context, session *Session, tx *sqlx.Tx
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
 	defer cancel()
 
-	token := auth.GenerateToken()
+	token, err := auth.GenerateSecureToken(auth.SessionTokenBytes)
+	if err != nil {
+		return "", err
+	}
 	session.Token = token
 	session.ExpiresAt = time.Now().Add(auth.SessionDuration)
 
-	var err error
 	if tx != nil {
 		_, err = tx.NamedExecContext(ctx, query, session)
 	} else {

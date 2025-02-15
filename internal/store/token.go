@@ -33,11 +33,13 @@ func (s *TokenStore) Create(ctx context.Context, token *Token, tx *sqlx.Tx) (str
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
 	defer cancel()
 
-	verificationToken := auth.GenerateToken()
+	verificationToken, err := auth.GenerateSecureToken(auth.EmailTokenBytes)
+	if err != nil {
+		return "", err
+	}
 	token.Token = verificationToken
 	token.ExpiresAt = time.Now().Add(TokenDuration)
 
-	var err error
 	if tx != nil {
 		_, err = tx.NamedExecContext(ctx, query, token)
 	} else {
