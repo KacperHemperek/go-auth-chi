@@ -174,40 +174,13 @@ func loginHandler(s *store.Storage) http.HandlerFunc {
 
 func getMeHandler(s *store.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token, err := r.Cookie("session")
-		if err != nil {
-			writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
-			return
-		}
-		session, err := s.Session.Validate(r.Context(), token.Value)
-		if err != nil {
-			writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
-			return
-		}
-
-		user, err := s.User.GetByID(r.Context(), session.UserID)
-
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-
+		user := getUserFromContext(r)
 		writeJSONResponse(w, http.StatusOK, map[string]any{"user": user})
 	}
 }
 
 func logoutHandler(s *store.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token, err := r.Cookie("session")
-		if err != nil {
-			writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
-			return
-		}
-		err = s.Session.Delete(r.Context(), token.Value, nil)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
 
 		cookie := auth.DeleteSessionCookie()
 		http.SetCookie(w, cookie)

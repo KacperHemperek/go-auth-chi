@@ -5,8 +5,10 @@ import (
 	"net/http"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/kacperhemperek/go-auth-chi/internal/store"
 )
 
+// JSON
 var Validate *validator.Validate
 
 func init() {
@@ -55,4 +57,13 @@ func writeJSONResponse(w http.ResponseWriter, status int, data any) error {
 	}
 
 	return writeJSON(w, status, &envelope{Data: data})
+}
+
+// Context
+type ctxKey string
+
+const ctxUserKey = ctxKey("user")
+
+func getUserFromContext(r *http.Request) *store.User {
+	return r.Context().Value(ctxUserKey).(*store.User)
 }
