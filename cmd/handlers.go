@@ -286,7 +286,7 @@ func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
 		}
 
 		// User exists, update OAuth provider and ID
-		if user.OAuthProvider == "" {
+		if user.OAuthProvider == "" || user.OAuthProvider != gothUser.Provider {
 			user.OAuthProvider = gothUser.Provider
 			user.OAuthID = gothUser.UserID
 			user.EmailVerified = true
