@@ -260,9 +260,11 @@ func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
 		user, err := s.User.GetByEmail(r.Context(), gothUser.Email)
 		if err != nil {
 			if err == store.ErrNotFound {
+				// User does not exist, create a new one
 				user = &store.User{
 					Email:         gothUser.Email,
 					AvatarURL:     gothUser.AvatarURL,
+					AvatarSource:  "oauth",
 					EmailVerified: true,
 					OAuthProvider: gothUser.Provider,
 					OAuthID:       gothUser.UserID,
@@ -283,10 +285,22 @@ func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
 			}
 		}
 
+		// User exists, update OAuth provider and ID
 		if user.OAuthProvider == "" {
 			user.OAuthProvider = gothUser.Provider
 			user.OAuthID = gothUser.UserID
 			user.EmailVerified = true
+			user, err = s.User.Update(r.Context(), user, tx)
+			if err != nil {
+				writeJSONError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+
+		// Update avatar URL if it's from OAuth provider or not set
+		if user.AvatarSource == "" || user.AvatarSource == "oauth" {
+			user.AvatarURL = gothUser.AvatarURL
+			user.AvatarSource = "oauth"
 			user, err = s.User.Update(r.Context(), user, tx)
 			if err != nil {
 				writeJSONError(w, http.StatusInternalServerError, err.Error())

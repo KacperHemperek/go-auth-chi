@@ -19,6 +19,7 @@ type User struct {
 	Password      auth.Hashed `json:"-" db:"password"`
 	EmailVerified bool        `json:"emailVerified" db:"email_verified"`
 	AvatarURL     string      `json:"avatarURL" db:"avatar_url"`
+	AvatarSource  string      `json:"avatarSource" db:"avatar_source"`
 	OAuthProvider string      `json:"oauthProvider" db:"oauth_provider"`
 	OAuthID       string      `json:"oauthID" db:"oauth_id"`
 }
@@ -30,8 +31,8 @@ type UserStore struct {
 // tx is an optional transaction in which the query will be executed.
 func (s *UserStore) Create(ctx context.Context, user *User, tx *sqlx.Tx) error {
 	query := `
-    INSERT INTO users (email, password, email_verified, avatar_url, oauth_provider, oauth_id)
-    VALUES (:email, :password, :email_verified, :avatar_url, :oauth_provider, :oauth_id)
+    INSERT INTO users (email, password, email_verified, avatar_url, avatar_source, oauth_provider, oauth_id)
+    VALUES (:email, :password, :email_verified, :avatar_url, :avatar_source, :oauth_provider, :oauth_id)
   `
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
@@ -113,6 +114,7 @@ func (s *UserStore) Update(ctx context.Context, user *User, tx *sqlx.Tx) (*User,
 		updated_at = NOW(), 
 		email_verified = :email_verified,
 		avatar_url = :avatar_url,
+		avatar_source = :avatar_source,
 		oauth_provider = :oauth_provider,
 		oauth_id = :oauth_id
 	WHERE id = :id
