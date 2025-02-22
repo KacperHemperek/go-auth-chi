@@ -9,6 +9,7 @@ import (
 	"github.com/kacperhemperek/go-auth-chi/internal/auth"
 	"github.com/kacperhemperek/go-auth-chi/internal/mailer"
 	"github.com/kacperhemperek/go-auth-chi/internal/store"
+	"github.com/markbates/goth/gothic"
 )
 
 func registerHandler(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
@@ -234,5 +235,87 @@ func verifyEmail(s *store.Storage) http.HandlerFunc {
 
 		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "Email verified successfully"})
 		return
+	}
+}
+
+func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		gothUser, err := gothic.CompleteUserAuth(w, r)
+		if err != nil {
+			writeJSONError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
+		tx, err := s.Transaction.Begin()
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		defer func(tx *sqlx.Tx) {
+			if err != nil {
+				s.Transaction.Rollback(tx)
+			}
+		}(tx)
+
+		user, err := s.User.GetByEmail(r.Context(), gothUser.Email)
+		if err != nil {
+			if err == store.ErrNotFound {
+				user = &store.User{
+					Email:         gothUser.Email,
+					AvatarURL:     gothUser.AvatarURL,
+					EmailVerified: true,
+					OAuthProvider: gothUser.Provider,
+					OAuthID:       gothUser.UserID,
+				}
+				if err = s.User.Create(r.Context(), user, tx); err != nil {
+					writeJSONError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+
+				user, err = s.User.GetByEmail(r.Context(), gothUser.Email)
+				if err != nil {
+					writeJSONError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+			} else {
+				writeJSONError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+
+		if user.OAuthProvider == "" {
+			user.OAuthProvider = gothUser.Provider
+			user.OAuthID = gothUser.UserID
+			user.EmailVerified = true
+			user, err = s.User.Update(r.Context(), user, tx)
+			if err != nil {
+				writeJSONError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+
+		token, err := s.Session.Create(
+			r.Context(),
+			&store.Session{
+				UserID:    user.ID,
+				IPAddress: r.RemoteAddr,
+				UserAgent: r.UserAgent(),
+				ExpiresAt: time.Now().Add(24 * time.Hour),
+			},
+			tx,
+		)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		if err = tx.Commit(); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		http.SetCookie(w, auth.NewSessionCookie(token))
+
+		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "User logged in successfully"})
 	}
 }
