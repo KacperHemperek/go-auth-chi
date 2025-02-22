@@ -13,6 +13,7 @@ import (
 	"github.com/kacperhemperek/go-auth-chi/internal/store"
 	"github.com/markbates/goth"
 	"github.com/markbates/goth/gothic"
+	"github.com/markbates/goth/providers/github"
 	"github.com/markbates/goth/providers/google"
 	"github.com/spf13/viper"
 )
@@ -44,6 +45,7 @@ func main() {
 
 	goth.UseProviders(
 		google.New(viper.GetString("GOOGLE_CLIENT_ID"), viper.GetString("GOOGLE_CLIENT_SECRET"), fmt.Sprintf("%s/auth/google/callback", viper.GetString("BASE_URL")), "email", "profile"),
+		github.New(viper.GetString("GITHUB_CLIENT_ID"), viper.GetString("GITHUB_CLIENT_SECRET"), fmt.Sprintf("%s/auth/github/callback", viper.GetString("BASE_URL")), "user:email"),
 	)
 
 	r := chi.NewRouter()
