@@ -116,3 +116,24 @@ func (s *SessionStore) Refresh(ctx context.Context, oldToken string) (string, er
 
 	return token, nil
 }
+
+func (s *SessionStore) DeleteForUser(ctx context.Context, userID string, tx *sqlx.Tx) error {
+	query := `
+		DELETE FROM sessions WHERE user_id = $1
+	`
+
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
+	defer cancel()
+
+	var err error
+	if tx != nil {
+		_, err = tx.ExecContext(ctx, query, userID)
+	} else {
+		_, err = s.db.ExecContext(ctx, query, userID)
+	}
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

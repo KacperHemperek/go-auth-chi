@@ -61,11 +61,18 @@ func main() {
 	mailer := mailer.New()
 
 	r.Route("/auth", func(r chi.Router) {
+		// Email verification routes
 		r.Post("/register", registerHandler(storage, mailer))
 		r.Post("/login", loginHandler(storage))
 		r.Put("/verify/{token}", verifyEmail(storage))
+
+		// OAuth routes for authentication
 		r.Get("/{provider}", gothic.BeginAuthHandler)
 		r.Get("/{provider}/callback", oauthCallbackHandler(storage))
+
+		// Password reset routes
+		r.Post("/reset-password", initPasswordReset(storage, mailer))
+		r.Put("/reset-password/{token}", completePasswordReset(storage, mailer))
 
 		// Protected routes
 		r.Group(func(r chi.Router) {

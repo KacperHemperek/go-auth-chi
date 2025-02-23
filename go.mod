@@ -5,6 +5,7 @@ go 1.24
 require (
 	github.com/go-chi/chi/v5 v5.2.1
 	github.com/go-playground/validator/v10 v10.24.0
+	github.com/gorilla/sessions v1.1.1
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9
 	github.com/markbates/goth v1.80.0
@@ -23,7 +24,6 @@ require (
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/mux v1.6.2 // indirect
 	github.com/gorilla/securecookie v1.1.1 // indirect
-	github.com/gorilla/sessions v1.1.1 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect

@@ -24,8 +24,9 @@ type Storage struct {
 	Session interface {
 		Create(ctx context.Context, session *Session, tx *sqlx.Tx) (token string, err error)
 		Validate(ctx context.Context, token string) (*Session, error)
-		Delete(ctx context.Context, token string, tx *sqlx.Tx) error
 		Refresh(ctx context.Context, oldToken string) (string, error)
+		Delete(ctx context.Context, token string, tx *sqlx.Tx) error
+		DeleteForUser(ctx context.Context, userID string, tx *sqlx.Tx) error
 	}
 	Token interface {
 		Create(ctx context.Context, token *Token, tx *sqlx.Tx) (string, error)

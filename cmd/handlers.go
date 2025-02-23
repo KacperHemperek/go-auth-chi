@@ -238,6 +238,116 @@ func verifyEmail(s *store.Storage) http.HandlerFunc {
 	}
 }
 
+func initPasswordReset(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
+	type request struct {
+		Email string `json:"email" validate:"required,email"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		req := &request{}
+		if err := readAndValidateJSON(w, r, req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		user, err := s.User.GetByEmail(r.Context(), req.Email)
+		if err != nil && err != store.ErrNotFound {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+		}
+		if err != nil && err == store.ErrNotFound {
+			writeJSONError(w, http.StatusBadRequest, "User not found")
+			return
+		}
+		tx, err := s.Transaction.Begin()
+		defer func(tx *sqlx.Tx) {
+			if err != nil {
+				s.Transaction.Rollback(tx)
+			}
+		}(tx)
+
+		token, err := s.Token.Create(r.Context(), &store.Token{UserID: user.ID}, tx)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "Failed to create token")
+			return
+		}
+
+		if err = m.SendPasswordResetEmail(user.Email, token); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "Failed to send email")
+			return
+		}
+		if err = s.Transaction.Commit(tx); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "Failed to commit changes")
+			return
+		}
+
+		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "Password reset initiated"})
+		return
+	}
+}
+
+func completePasswordReset(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
+	type request struct {
+		Password        string `json:"password" validate:"required,min=8,max=30"`
+		ConfirmPassword string `json:"confirmPassword" validate:"eqfield=Password"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		tokenStr := chi.URLParam(r, "token")
+		if tokenStr == "" {
+			writeJSONError(w, http.StatusBadRequest, "Token is required")
+			return
+		}
+		token, err := s.Token.Validate(r.Context(), tokenStr)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "Invalid token")
+			return
+		}
+		req := &request{}
+		if err := readAndValidateJSON(w, r, req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		user, err := s.User.GetByID(r.Context(), token.UserID)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "Failed to get user")
+			return
+		}
+
+		tx, err := s.Transaction.Begin()
+
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "Internal server error")
+			return
+		}
+
+		defer func(tx *sqlx.Tx) {
+			if err != nil {
+				s.Transaction.Rollback(tx)
+			}
+		}(tx)
+
+		user.Password.Set(req.Password)
+		if _, err = s.User.Update(r.Context(), user, tx); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "Failed to update password")
+			return
+		}
+
+		if err = s.Token.Delete(r.Context(), token.Token, tx); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "Failed to delete token")
+			return
+		}
+
+		if err = m.SendPasswordChangedEmail(user.Email); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "Failed to send email")
+		}
+
+		if err = s.Transaction.Commit(tx); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "Failed to commit changes")
+			return
+		}
+
+		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "Password reset successfully"})
+		return
+	}
+}
+
 func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		gothUser, err := gothic.CompleteUserAuth(w, r)
@@ -247,16 +357,6 @@ func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
 		}
 
 		tx, err := s.Transaction.Begin()
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		defer func(tx *sqlx.Tx) {
-			if err != nil {
-				s.Transaction.Rollback(tx)
-			}
-		}(tx)
-
 		user, err := s.User.GetByEmail(r.Context(), gothUser.Email)
 		if err != nil {
 			if err == store.ErrNotFound {
@@ -322,7 +422,6 @@ func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-
 		if err = tx.Commit(); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
