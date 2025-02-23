@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/kacperhemperek/go-auth-chi/internal/auth"
 )
 
 var (
@@ -28,9 +29,9 @@ type Storage struct {
 		Delete(ctx context.Context, token string, tx *sqlx.Tx) error
 		DeleteForUser(ctx context.Context, userID string, tx *sqlx.Tx) error
 	}
-	Token interface {
-		Create(ctx context.Context, token *Token, tx *sqlx.Tx) (string, error)
-		Validate(ctx context.Context, tokenStr string) (*Token, error)
+	Verification interface {
+		Create(ctx context.Context, verification *Verification, tx *sqlx.Tx) (string, error)
+		Validate(ctx context.Context, tokenStr string, intent auth.VerificationIntent) (*Verification, error)
 		Delete(ctx context.Context, token string, tx *sqlx.Tx) error
 	}
 	Transaction interface {
@@ -42,9 +43,9 @@ type Storage struct {
 
 func NewStorage(db *sqlx.DB) *Storage {
 	return &Storage{
-		User:        &UserStore{db: db},
-		Session:     &SessionStore{db: db},
-		Token:       &TokenStore{db: db},
-		Transaction: &TransactionStore{db: db},
+		User:         &UserStore{db: db},
+		Session:      &SessionStore{db: db},
+		Verification: &VerificationStore{db: db},
+		Transaction:  &TransactionStore{db: db},
 	}
 }

@@ -2,7 +2,9 @@ package auth
 
 import (
 	"crypto/rand"
+	"database/sql/driver"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -20,6 +22,69 @@ const (
 	SessionTokenBytes = 32
 	EmailTokenBytes   = 64
 )
+
+type VerificationIntent int
+
+const (
+	PasswordReset VerificationIntent = iota
+	EmailVerification
+	OneTimePassword
+	MagicLink
+)
+
+var verificationIntentToString = map[VerificationIntent]string{
+	PasswordReset:     "password_reset",
+	EmailVerification: "email_verification",
+	OneTimePassword:   "one_time_password",
+	MagicLink:         "magic_link",
+}
+
+var stringToVerificationIntent = map[string]VerificationIntent{
+	"password_reset":     PasswordReset,
+	"email_verification": EmailVerification,
+	"one_time_password":  OneTimePassword,
+	"magic_link":         MagicLink,
+}
+
+func (v VerificationIntent) String() string {
+	if str, ok := verificationIntentToString[v]; ok {
+		return str
+	}
+	return "unknown"
+}
+
+func (v VerificationIntent) MarshalJSON() ([]byte, error) {
+	return json.Marshal(v.String())
+}
+
+func (v *VerificationIntent) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return err
+	}
+
+	intent, ok := stringToVerificationIntent[str]
+	if !ok {
+		return errors.New("invalid VerificationIntent value")
+	}
+
+	*v = intent
+	return nil
+}
+
+func (v VerificationIntent) Value() (driver.Value, error) {
+	return int(v), nil
+}
+
+func (v *VerificationIntent) Scan(value interface{}) error {
+	i, ok := value.(int64)
+	if !ok {
+		return errors.New("invalid VerificationIntent scan source")
+	}
+
+	*v = VerificationIntent(i)
+	return nil
+}
 
 type Hashed []byte
 

@@ -77,7 +77,7 @@ func main() {
 		// Protected routes
 		r.Group(func(r chi.Router) {
 			r.Use(authMiddleware(storage))
-			r.Get("/me", getMeHandler(storage))
+			r.Get("/me", getMeHandler())
 			r.Post("/logout", logoutHandler(storage))
 		})
 	})

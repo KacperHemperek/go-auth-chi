@@ -84,9 +84,9 @@ func registerHandler(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			return
 		}
 
-		validationToken, err := s.Token.Create(
+		validationToken, err := s.Verification.Create(
 			r.Context(),
-			&store.Token{
+			&store.Verification{
 				UserID: user.ID,
 			},
 			tx,
@@ -173,7 +173,7 @@ func loginHandler(s *store.Storage) http.HandlerFunc {
 	}
 }
 
-func getMeHandler(s *store.Storage) http.HandlerFunc {
+func getMeHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := getUserFromContext(r)
 		writeJSONResponse(w, http.StatusOK, map[string]any{"user": user})
@@ -210,7 +210,7 @@ func verifyEmail(s *store.Storage) http.HandlerFunc {
 			return
 		}
 
-		token, err := s.Token.Validate(r.Context(), tokenStr)
+		token, err := s.Verification.Validate(r.Context(), tokenStr, auth.EmailVerification)
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, "Invalid token")
 			return
@@ -227,7 +227,7 @@ func verifyEmail(s *store.Storage) http.HandlerFunc {
 			return
 		}
 
-		err = s.Token.Delete(r.Context(), token.Token, nil)
+		err = s.Verification.Delete(r.Context(), token.Value, nil)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -263,7 +263,7 @@ func initPasswordReset(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			}
 		}(tx)
 
-		token, err := s.Token.Create(r.Context(), &store.Token{UserID: user.ID}, tx)
+		token, err := s.Verification.Create(r.Context(), &store.Verification{UserID: user.ID}, tx)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to create token")
 			return
@@ -294,7 +294,7 @@ func completePasswordReset(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			writeJSONError(w, http.StatusBadRequest, "Token is required")
 			return
 		}
-		token, err := s.Token.Validate(r.Context(), tokenStr)
+		token, err := s.Verification.Validate(r.Context(), tokenStr, auth.PasswordReset)
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, "Invalid token")
 			return
@@ -329,7 +329,7 @@ func completePasswordReset(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			return
 		}
 
-		if err = s.Token.Delete(r.Context(), token.Token, tx); err != nil {
+		if err = s.Verification.Delete(r.Context(), token.Value, tx); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to delete token")
 			return
 		}
