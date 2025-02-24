@@ -96,7 +96,7 @@ func (s *VerificationStore) Validate(ctx context.Context, tokenStr string, inten
 
 func (s *VerificationStore) Delete(ctx context.Context, token string, tx *sqlx.Tx) error {
 	query := `
-		DELETE FROM verifications WHERE token = $1
+		DELETE FROM verifications WHERE value = $1
 	`
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)

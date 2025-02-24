@@ -15,13 +15,13 @@ var (
 
 type User struct {
 	BaseEntity
-	Email         string      `json:"email" db:"email"`
-	Password      auth.Hashed `json:"-" db:"password"`
-	EmailVerified bool        `json:"emailVerified" db:"email_verified"`
-	AvatarURL     string      `json:"avatarURL" db:"avatar_url"`
-	AvatarSource  string      `json:"avatarSource" db:"avatar_source"`
-	OAuthProvider string      `json:"oauthProvider" db:"oauth_provider"`
-	OAuthID       string      `json:"oauthID" db:"oauth_id"`
+	Email         string           `json:"email" db:"email"`
+	Password      auth.Hashed      `json:"-" db:"password"`
+	EmailVerified bool             `json:"emailVerified" db:"email_verified"`
+	AvatarURL     *auth.NullString `json:"avatarURL" db:"avatar_url"`
+	AvatarSource  *auth.NullString `json:"avatarSource" db:"avatar_source"`
+	OAuthProvider *auth.NullString `json:"oauthProvider" db:"oauth_provider"`
+	OAuthID       *auth.NullString `json:"oauthID" db:"oauth_id"`
 }
 
 type UserStore struct {

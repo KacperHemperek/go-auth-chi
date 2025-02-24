@@ -381,11 +381,11 @@ func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
 				// User does not exist, create a new one
 				user = &store.User{
 					Email:         gothUser.Email,
-					AvatarURL:     gothUser.AvatarURL,
-					AvatarSource:  "oauth",
+					AvatarURL:     auth.NewNullString(gothUser.AvatarURL),
+					AvatarSource:  auth.NewNullString("oauth"),
 					EmailVerified: true,
-					OAuthProvider: gothUser.Provider,
-					OAuthID:       gothUser.UserID,
+					OAuthProvider: auth.NewNullString(gothUser.Provider),
+					OAuthID:       auth.NewNullString(gothUser.UserID),
 				}
 				if err = s.User.Create(r.Context(), user, tx); err != nil {
 					writeJSONError(w, http.StatusInternalServerError, err.Error())
@@ -404,9 +404,9 @@ func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
 		}
 
 		// User exists, update OAuth provider and ID
-		if user.OAuthProvider == "" || user.OAuthProvider != gothUser.Provider {
-			user.OAuthProvider = gothUser.Provider
-			user.OAuthID = gothUser.UserID
+		if !user.OAuthProvider.Valid || user.OAuthProvider.String != gothUser.Provider {
+			user.OAuthProvider = auth.NewNullString(gothUser.Provider)
+			user.OAuthID = auth.NewNullString(gothUser.UserID)
 			user.EmailVerified = true
 			user, err = s.User.Update(r.Context(), user, tx)
 			if err != nil {
@@ -416,9 +416,9 @@ func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
 		}
 
 		// Update avatar URL if it's from OAuth provider or not set
-		if user.AvatarSource == "" || user.AvatarSource == "oauth" {
-			user.AvatarURL = gothUser.AvatarURL
-			user.AvatarSource = "oauth"
+		if !user.AvatarSource.Valid || user.AvatarSource.String == "oauth" {
+			user.AvatarURL = auth.NewNullString(gothUser.AvatarURL)
+			user.AvatarSource = auth.NewNullString("oauth")
 			user, err = s.User.Update(r.Context(), user, tx)
 			if err != nil {
 				writeJSONError(w, http.StatusInternalServerError, err.Error())
