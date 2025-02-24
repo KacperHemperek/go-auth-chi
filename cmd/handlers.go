@@ -546,10 +546,14 @@ func completeMagicLinkSignIn(s *store.Storage) http.HandlerFunc {
 		if err != nil {
 			// User does not exist, register the user with the email passed in the query string
 			if err == store.ErrNotFound {
-				user = &store.User{
-					Email:         verificationToken.Email.String,
-					EmailVerified: true,
-				}
+				user = store.NewUser(
+					verificationToken.Email.String,
+					true,
+					nil,
+					nil,
+					nil,
+					nil,
+				)
 				if err = s.User.Create(r.Context(), user, tx); err != nil {
 					writeJSONError(w, http.StatusInternalServerError, err.Error())
 					return
