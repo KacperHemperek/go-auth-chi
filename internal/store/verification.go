@@ -14,22 +14,22 @@ var (
 )
 
 type Verification struct {
-	ID     string                  `json:"id" db:"id"`
-	Intent auth.VerificationIntent `json:"intent" db:"intent"`
-	UserID *auth.NullString        `json:"userId" db:"user_id"`
-	// NOTE: Used mainly for magic link verification and one time password in the future
-	Email     *auth.NullString `json:"email" db:"email"`
-	Value     string           `json:"value" db:"value"`
-	ExpiresAt time.Time        `json:"expiresAt" db:"expires_at"`
+	ID        string                  `json:"id" db:"id"`
+	Intent    auth.VerificationIntent `json:"intent" db:"intent"`
+	UserID    *auth.NullString        `json:"userId" db:"user_id"`
+	Email     *auth.NullString        `json:"email" db:"email"`
+	OTP       *auth.Hashed            `json:"-" db:"otp"`
+	Value     string                  `json:"value" db:"value"`
+	ExpiresAt time.Time               `json:"expiresAt" db:"expires_at"`
 	DbTimestamps
 }
 
 func NewVerification(i auth.VerificationIntent, email, userID *auth.NullString) *Verification {
 	if email == nil {
-		email = &auth.NullString{}
+		email = auth.NewNullString("")
 	}
 	if userID == nil {
-		userID = &auth.NullString{}
+		userID = auth.NewNullString("")
 	}
 
 	return &Verification{

@@ -38,7 +38,7 @@ func authMiddleware(s *store.Storage) func(next http.Handler) http.Handler {
 				}
 			}
 
-			user, err := s.User.GetByID(r.Context(), session.UserID)
+			user, err := s.User.GetByID(r.Context(), session.UserID, nil)
 			if err != nil {
 				writeJSONError(w, http.StatusInternalServerError, err.Error())
 				return

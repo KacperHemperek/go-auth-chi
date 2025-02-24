@@ -24,6 +24,30 @@ type User struct {
 	OAuthID       *auth.NullString `json:"oauthID" db:"oauth_id"`
 }
 
+func NewUser(email string, emailVerified bool, avatarURL, avatarSource, oauthProvider, oauthID *auth.NullString) *User {
+	if avatarURL == nil {
+		avatarURL = auth.NewNullString("")
+	}
+	if avatarSource == nil {
+		avatarSource = auth.NewNullString("")
+	}
+	if oauthProvider == nil {
+		oauthProvider = auth.NewNullString("")
+	}
+	if oauthID == nil {
+		oauthID = auth.NewNullString("")
+	}
+
+	return &User{
+		Email:         email,
+		EmailVerified: emailVerified,
+		AvatarURL:     avatarURL,
+		AvatarSource:  avatarSource,
+		OAuthProvider: oauthProvider,
+		OAuthID:       oauthID,
+	}
+}
+
 type UserStore struct {
 	db *sqlx.DB
 }
@@ -57,17 +81,22 @@ func (s *UserStore) Create(ctx context.Context, user *User, tx *sqlx.Tx) error {
 	return nil
 }
 
-func (s *UserStore) GetByID(ctx context.Context, id string) (*User, error) {
+func (s *UserStore) GetByID(ctx context.Context, id string, tx *sqlx.Tx) (*User, error) {
 	query := `
     SELECT * FROM users
     WHERE id = $1
-  `
+	`
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
 	defer cancel()
 
 	user := &User{}
-	err := s.db.GetContext(ctx, user, query, id)
+	var err error
+	if tx == nil {
+		err = s.db.GetContext(ctx, user, query, id)
+	} else {
+		err = tx.GetContext(ctx, user, query, id)
+	}
 	if err != nil {
 		switch err {
 		case sql.ErrNoRows:
@@ -81,7 +110,7 @@ func (s *UserStore) GetByID(ctx context.Context, id string) (*User, error) {
 }
 
 // tx is an optional transaction in which the query will be executed.
-func (s *UserStore) GetByEmail(ctx context.Context, email string) (*User, error) {
+func (s *UserStore) GetByEmail(ctx context.Context, email string, tx *sqlx.Tx) (*User, error) {
 	query := `
     SELECT * FROM users
     WHERE email = $1
@@ -91,7 +120,12 @@ func (s *UserStore) GetByEmail(ctx context.Context, email string) (*User, error)
 	defer cancel()
 
 	user := &User{}
-	err := s.db.GetContext(ctx, user, query, email)
+	var err error
+	if tx == nil {
+		err = s.db.GetContext(ctx, user, query, email)
+	} else {
+		err = tx.GetContext(ctx, user, query, email)
+	}
 	if err != nil {
 		switch err {
 		case sql.ErrNoRows:

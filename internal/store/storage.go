@@ -18,8 +18,8 @@ var (
 type Storage struct {
 	User interface {
 		Create(ctx context.Context, user *User, tx *sqlx.Tx) error
-		GetByID(ctx context.Context, id string) (*User, error)
-		GetByEmail(ctx context.Context, email string) (*User, error)
+		GetByID(ctx context.Context, id string, tx *sqlx.Tx) (*User, error)
+		GetByEmail(ctx context.Context, email string, tx *sqlx.Tx) (*User, error)
 		Update(ctx context.Context, user *User, tx *sqlx.Tx) (*User, error)
 	}
 	Session interface {
