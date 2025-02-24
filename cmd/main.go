@@ -70,6 +70,10 @@ func main() {
 		r.Get("/{provider}", gothic.BeginAuthHandler)
 		r.Get("/{provider}/callback", oauthCallbackHandler(storage))
 
+		// Magic link routes
+		r.Post("/magic-link", initMagicLinkSignIn(storage, mailer))
+		r.Get("/magic-link/{token}", completeMagicLinkSignIn(storage))
+
 		// Password reset routes
 		r.Post("/reset-password", initPasswordReset(storage, mailer))
 		r.Put("/reset-password/{token}", completePasswordReset(storage, mailer))

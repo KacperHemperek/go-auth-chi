@@ -14,12 +14,29 @@ var (
 )
 
 type Verification struct {
-	ID        int                     `json:"id" db:"id"`
-	Intent    auth.VerificationIntent `json:"intent" db:"intent"`
-	UserID    string                  `json:"userId" db:"user_id"`
-	Value     string                  `json:"value" db:"value"`
-	ExpiresAt time.Time               `json:"expiresAt" db:"expires_at"`
+	ID     string                  `json:"id" db:"id"`
+	Intent auth.VerificationIntent `json:"intent" db:"intent"`
+	UserID *auth.NullString        `json:"userId" db:"user_id"`
+	// NOTE: Used mainly for magic link verification and one time password in the future
+	Email     *auth.NullString `json:"email" db:"email"`
+	Value     string           `json:"value" db:"value"`
+	ExpiresAt time.Time        `json:"expiresAt" db:"expires_at"`
 	DbTimestamps
+}
+
+func NewVerification(i auth.VerificationIntent, email, userID *auth.NullString) *Verification {
+	if email == nil {
+		email = &auth.NullString{}
+	}
+	if userID == nil {
+		userID = &auth.NullString{}
+	}
+
+	return &Verification{
+		Intent: i,
+		Email:  email,
+		UserID: userID,
+	}
 }
 
 type VerificationStore struct {
@@ -28,8 +45,8 @@ type VerificationStore struct {
 
 func (s *VerificationStore) Create(ctx context.Context, verification *Verification, tx *sqlx.Tx) (string, error) {
 	query := `
-		INSERT INTO verifications (user_id, token, expires_at, intent)
-	VALUES (:user_id, :token, :expires_at, :intent)
+		INSERT INTO verifications (user_id, value, expires_at, intent, email)
+	VALUES (:user_id, :value, :expires_at, :intent, :email)
 	`
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
@@ -57,13 +74,13 @@ func (s *VerificationStore) Create(ctx context.Context, verification *Verificati
 func (s *VerificationStore) Validate(ctx context.Context, tokenStr string, intent auth.VerificationIntent) (*Verification, error) {
 	query := `
 		SELECT * FROM verifications 
-    WHERE token = $1 AND intent = $2 expires_at > NOW()
+    WHERE value = $1 AND intent = $2 AND expires_at > NOW()
 	`
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
 	defer cancel()
 
-	token := &Verification{}
+	token := NewVerification(intent, nil, nil)
 	err := s.db.GetContext(ctx, token, query, tokenStr, intent)
 	if err != nil {
 		switch err {

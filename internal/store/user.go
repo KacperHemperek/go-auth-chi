@@ -39,9 +39,8 @@ func (s *UserStore) Create(ctx context.Context, user *User, tx *sqlx.Tx) error {
 	defer cancel()
 
 	var err error
-	if tx != nil {
+	if tx == nil {
 		_, err = s.db.NamedExecContext(ctx, query, user)
-
 	} else {
 		_, err = tx.NamedExecContext(ctx, query, user)
 	}
@@ -119,7 +118,7 @@ func (s *UserStore) Update(ctx context.Context, user *User, tx *sqlx.Tx) (*User,
 		oauth_id = :oauth_id
 	WHERE id = :id
 	RETURNING *
-  `
+	`
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
 	defer cancel()

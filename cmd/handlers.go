@@ -86,9 +86,11 @@ func registerHandler(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 
 		validationToken, err := s.Verification.Create(
 			r.Context(),
-			&store.Verification{
-				UserID: user.ID,
-			},
+			store.NewVerification(
+				auth.EmailVerificationIntent,
+				nil,
+				auth.NewNullString(user.ID),
+			),
 			tx,
 		)
 		if err != nil {
@@ -210,12 +212,16 @@ func verifyEmail(s *store.Storage) http.HandlerFunc {
 			return
 		}
 
-		token, err := s.Verification.Validate(r.Context(), tokenStr, auth.EmailVerification)
+		token, err := s.Verification.Validate(r.Context(), tokenStr, auth.EmailVerificationIntent)
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, "Invalid token")
 			return
 		}
-		user, err := s.User.GetByID(r.Context(), token.UserID)
+		if !token.UserID.Valid {
+			writeJSONError(w, http.StatusInternalServerError, "Invalid token")
+			return
+		}
+		user, err := s.User.GetByID(r.Context(), token.UserID.String)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -263,7 +269,15 @@ func initPasswordReset(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			}
 		}(tx)
 
-		token, err := s.Verification.Create(r.Context(), &store.Verification{UserID: user.ID}, tx)
+		token, err := s.Verification.Create(
+			r.Context(),
+			store.NewVerification(
+				auth.PasswordResetIntent,
+				nil,
+				auth.NewNullString(user.ID),
+			),
+			tx,
+		)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to create token")
 			return
@@ -294,9 +308,13 @@ func completePasswordReset(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			writeJSONError(w, http.StatusBadRequest, "Token is required")
 			return
 		}
-		token, err := s.Verification.Validate(r.Context(), tokenStr, auth.PasswordReset)
+		token, err := s.Verification.Validate(r.Context(), tokenStr, auth.PasswordResetIntent)
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, "Invalid token")
+			return
+		}
+		if !token.UserID.Valid {
+			writeJSONError(w, http.StatusInternalServerError, "Invalid token")
 			return
 		}
 		req := &request{}
@@ -304,7 +322,7 @@ func completePasswordReset(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		user, err := s.User.GetByID(r.Context(), token.UserID)
+		user, err := s.User.GetByID(r.Context(), token.UserID.String)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to get user")
 			return
@@ -428,6 +446,146 @@ func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
 		}
 
 		http.SetCookie(w, auth.NewSessionCookie(token))
+
+		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "User logged in successfully"})
+	}
+}
+
+func initMagicLinkSignIn(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
+	type request struct {
+		Email string `json:"email" validate:"required,email"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionCookie, err := r.Cookie("session")
+		if err == nil {
+			_, err := s.Session.Validate(r.Context(), sessionCookie.Value)
+			if err == nil {
+				writeJSONError(w, http.StatusBadRequest, "User already logged in")
+				return
+			}
+		}
+
+		req := &request{}
+		if err := readAndValidateJSON(w, r, req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		tx, err := s.Transaction.Begin()
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		defer func(tx *sqlx.Tx) {
+			if err != nil {
+				s.Transaction.Rollback(tx)
+			}
+		}(tx)
+
+		verificationToken, err := s.Verification.Create(
+			r.Context(),
+			store.NewVerification(
+				auth.MagicLinkIntent,
+				auth.NewNullString(req.Email),
+				nil,
+			),
+			tx,
+		)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		if err = m.SendMagicLinkEmail(req.Email, verificationToken); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		if err = s.Transaction.Commit(tx); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "Magic link sent"})
+	}
+}
+
+func completeMagicLinkSignIn(s *store.Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tokenStr := chi.URLParam(r, "token")
+
+		if tokenStr == "" {
+			writeJSONError(w, http.StatusBadRequest, "Token is required")
+			return
+		}
+
+		verificationToken, err := s.Verification.Validate(r.Context(), tokenStr, auth.MagicLinkIntent)
+
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "Invalid token")
+			return
+		}
+
+		// Email is required for magic link sign in to make sure we can create a user if it doesn't exist and find user by email if it does
+		if !verificationToken.Email.Valid {
+			writeJSONError(w, http.StatusBadRequest, "Invalid token")
+		}
+
+		user, err := s.User.GetByEmail(r.Context(), verificationToken.Email.String)
+
+		tx, err := s.Transaction.Begin()
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+		}
+
+		defer func(tx *sqlx.Tx) {
+			if err != nil {
+				s.Transaction.Rollback(tx)
+			}
+		}(tx)
+
+		if err != nil {
+			// User does not exist, register the user with the email passed in the query string
+			if err == store.ErrNotFound {
+				user = &store.User{
+					Email:         verificationToken.Email.String,
+					EmailVerified: true,
+				}
+				if err = s.User.Create(r.Context(), user, tx); err != nil {
+					writeJSONError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+
+				user, err = s.User.GetByEmail(r.Context(), verificationToken.Email.String)
+				if err != nil {
+					writeJSONError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+			} else {
+				writeJSONError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+
+		sessionToken, err := s.Session.Create(r.Context(), &store.Session{
+			UserID:    user.ID,
+			IPAddress: r.RemoteAddr,
+			UserAgent: r.UserAgent(),
+			ExpiresAt: time.Now().Add(24 * time.Hour),
+		}, tx)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		err = s.Transaction.Commit(tx)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		cookie := auth.NewSessionCookie(sessionToken)
+		http.SetCookie(w, cookie)
 
 		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "User logged in successfully"})
 	}
