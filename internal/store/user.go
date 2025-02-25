@@ -15,13 +15,37 @@ var (
 
 type User struct {
 	BaseEntity
-	Email         string      `json:"email" db:"email"`
-	Password      auth.Hashed `json:"-" db:"password"`
-	EmailVerified bool        `json:"emailVerified" db:"email_verified"`
-	AvatarURL     string      `json:"avatarURL" db:"avatar_url"`
-	AvatarSource  string      `json:"avatarSource" db:"avatar_source"`
-	OAuthProvider string      `json:"oauthProvider" db:"oauth_provider"`
-	OAuthID       string      `json:"oauthID" db:"oauth_id"`
+	Email         string           `json:"email" db:"email"`
+	Password      auth.Hashed      `json:"-" db:"password"`
+	EmailVerified bool             `json:"emailVerified" db:"email_verified"`
+	AvatarURL     *auth.NullString `json:"avatarURL" db:"avatar_url"`
+	AvatarSource  *auth.NullString `json:"avatarSource" db:"avatar_source"`
+	OAuthProvider *auth.NullString `json:"oauthProvider" db:"oauth_provider"`
+	OAuthID       *auth.NullString `json:"oauthID" db:"oauth_id"`
+}
+
+func NewUser(email string, emailVerified bool, avatarURL, avatarSource, oauthProvider, oauthID *auth.NullString) *User {
+	if avatarURL == nil {
+		avatarURL = auth.NewNullString("")
+	}
+	if avatarSource == nil {
+		avatarSource = auth.NewNullString("")
+	}
+	if oauthProvider == nil {
+		oauthProvider = auth.NewNullString("")
+	}
+	if oauthID == nil {
+		oauthID = auth.NewNullString("")
+	}
+
+	return &User{
+		Email:         email,
+		EmailVerified: emailVerified,
+		AvatarURL:     avatarURL,
+		AvatarSource:  avatarSource,
+		OAuthProvider: oauthProvider,
+		OAuthID:       oauthID,
+	}
 }
 
 type UserStore struct {
@@ -39,9 +63,8 @@ func (s *UserStore) Create(ctx context.Context, user *User, tx *sqlx.Tx) error {
 	defer cancel()
 
 	var err error
-	if tx != nil {
+	if tx == nil {
 		_, err = s.db.NamedExecContext(ctx, query, user)
-
 	} else {
 		_, err = tx.NamedExecContext(ctx, query, user)
 	}
@@ -58,17 +81,22 @@ func (s *UserStore) Create(ctx context.Context, user *User, tx *sqlx.Tx) error {
 	return nil
 }
 
-func (s *UserStore) GetByID(ctx context.Context, id string) (*User, error) {
+func (s *UserStore) GetByID(ctx context.Context, id string, tx *sqlx.Tx) (*User, error) {
 	query := `
     SELECT * FROM users
     WHERE id = $1
-  `
+	`
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
 	defer cancel()
 
 	user := &User{}
-	err := s.db.GetContext(ctx, user, query, id)
+	var err error
+	if tx == nil {
+		err = s.db.GetContext(ctx, user, query, id)
+	} else {
+		err = tx.GetContext(ctx, user, query, id)
+	}
 	if err != nil {
 		switch err {
 		case sql.ErrNoRows:
@@ -82,7 +110,7 @@ func (s *UserStore) GetByID(ctx context.Context, id string) (*User, error) {
 }
 
 // tx is an optional transaction in which the query will be executed.
-func (s *UserStore) GetByEmail(ctx context.Context, email string) (*User, error) {
+func (s *UserStore) GetByEmail(ctx context.Context, email string, tx *sqlx.Tx) (*User, error) {
 	query := `
     SELECT * FROM users
     WHERE email = $1
@@ -92,7 +120,12 @@ func (s *UserStore) GetByEmail(ctx context.Context, email string) (*User, error)
 	defer cancel()
 
 	user := &User{}
-	err := s.db.GetContext(ctx, user, query, email)
+	var err error
+	if tx == nil {
+		err = s.db.GetContext(ctx, user, query, email)
+	} else {
+		err = tx.GetContext(ctx, user, query, email)
+	}
 	if err != nil {
 		switch err {
 		case sql.ErrNoRows:
@@ -119,7 +152,7 @@ func (s *UserStore) Update(ctx context.Context, user *User, tx *sqlx.Tx) (*User,
 		oauth_id = :oauth_id
 	WHERE id = :id
 	RETURNING *
-  `
+	`
 
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeout)
 	defer cancel()

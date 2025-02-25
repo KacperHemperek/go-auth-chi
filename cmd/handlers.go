@@ -34,9 +34,7 @@ func registerHandler(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			return
 		}
 
-		newUser := &store.User{
-			Email: req.Email,
-		}
+		newUser := store.NewUser(req.Email, false, nil, nil, nil, nil)
 		if err := newUser.Password.Set(req.Password); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -62,7 +60,7 @@ func registerHandler(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			writeJSONError(w, http.StatusBadRequest, "Email already taken")
 			return
 		}
-		user, err := s.User.GetByEmail(r.Context(), req.Email)
+		user, err := s.User.GetByEmail(r.Context(), req.Email, tx)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -84,11 +82,13 @@ func registerHandler(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			return
 		}
 
-		validationToken, err := s.Token.Create(
+		validationToken, err := s.Verification.Create(
 			r.Context(),
-			&store.Token{
-				UserID: user.ID,
-			},
+			store.NewVerification(
+				auth.EmailVerificationIntent,
+				nil,
+				auth.NewNullString(user.ID),
+			),
 			tx,
 		)
 		if err != nil {
@@ -136,7 +136,7 @@ func loginHandler(s *store.Storage) http.HandlerFunc {
 			return
 		}
 
-		user, err := s.User.GetByEmail(r.Context(), req.Email)
+		user, err := s.User.GetByEmail(r.Context(), req.Email, nil)
 		if err != nil && err != store.ErrNotFound {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -173,7 +173,7 @@ func loginHandler(s *store.Storage) http.HandlerFunc {
 	}
 }
 
-func getMeHandler(s *store.Storage) http.HandlerFunc {
+func getMeHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := getUserFromContext(r)
 		writeJSONResponse(w, http.StatusOK, map[string]any{"user": user})
@@ -210,12 +210,16 @@ func verifyEmail(s *store.Storage) http.HandlerFunc {
 			return
 		}
 
-		token, err := s.Token.Validate(r.Context(), tokenStr)
+		token, err := s.Verification.Validate(r.Context(), tokenStr, auth.EmailVerificationIntent)
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, "Invalid token")
 			return
 		}
-		user, err := s.User.GetByID(r.Context(), token.UserID)
+		if !token.UserID.Valid {
+			writeJSONError(w, http.StatusInternalServerError, "Invalid token")
+			return
+		}
+		user, err := s.User.GetByID(r.Context(), token.UserID.String, nil)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -227,7 +231,7 @@ func verifyEmail(s *store.Storage) http.HandlerFunc {
 			return
 		}
 
-		err = s.Token.Delete(r.Context(), token.Token, nil)
+		err = s.Verification.Delete(r.Context(), token.Value, nil)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -248,7 +252,7 @@ func initPasswordReset(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		user, err := s.User.GetByEmail(r.Context(), req.Email)
+		user, err := s.User.GetByEmail(r.Context(), req.Email, nil)
 		if err != nil && err != store.ErrNotFound {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 		}
@@ -263,18 +267,26 @@ func initPasswordReset(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			}
 		}(tx)
 
-		token, err := s.Token.Create(r.Context(), &store.Token{UserID: user.ID}, tx)
+		token, err := s.Verification.Create(
+			r.Context(),
+			store.NewVerification(
+				auth.PasswordResetIntent,
+				nil,
+				auth.NewNullString(user.ID),
+			),
+			tx,
+		)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "Failed to create token")
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
 		if err = m.SendPasswordResetEmail(user.Email, token); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "Failed to send email")
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		if err = s.Transaction.Commit(tx); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "Failed to commit changes")
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
@@ -294,9 +306,13 @@ func completePasswordReset(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			writeJSONError(w, http.StatusBadRequest, "Token is required")
 			return
 		}
-		token, err := s.Token.Validate(r.Context(), tokenStr)
+		token, err := s.Verification.Validate(r.Context(), tokenStr, auth.PasswordResetIntent)
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, "Invalid token")
+			return
+		}
+		if !token.UserID.Valid {
+			writeJSONError(w, http.StatusInternalServerError, "Invalid token")
 			return
 		}
 		req := &request{}
@@ -304,7 +320,7 @@ func completePasswordReset(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		user, err := s.User.GetByID(r.Context(), token.UserID)
+		user, err := s.User.GetByID(r.Context(), token.UserID.String, nil)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to get user")
 			return
@@ -329,7 +345,7 @@ func completePasswordReset(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 			return
 		}
 
-		if err = s.Token.Delete(r.Context(), token.Token, tx); err != nil {
+		if err = s.Verification.Delete(r.Context(), token.Value, tx); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to delete token")
 			return
 		}
@@ -357,24 +373,24 @@ func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
 		}
 
 		tx, err := s.Transaction.Begin()
-		user, err := s.User.GetByEmail(r.Context(), gothUser.Email)
+		user, err := s.User.GetByEmail(r.Context(), gothUser.Email, nil)
 		if err != nil {
 			if err == store.ErrNotFound {
 				// User does not exist, create a new one
 				user = &store.User{
 					Email:         gothUser.Email,
-					AvatarURL:     gothUser.AvatarURL,
-					AvatarSource:  "oauth",
+					AvatarURL:     auth.NewNullString(gothUser.AvatarURL),
+					AvatarSource:  auth.NewNullString("oauth"),
 					EmailVerified: true,
-					OAuthProvider: gothUser.Provider,
-					OAuthID:       gothUser.UserID,
+					OAuthProvider: auth.NewNullString(gothUser.Provider),
+					OAuthID:       auth.NewNullString(gothUser.UserID),
 				}
 				if err = s.User.Create(r.Context(), user, tx); err != nil {
 					writeJSONError(w, http.StatusInternalServerError, err.Error())
 					return
 				}
 
-				user, err = s.User.GetByEmail(r.Context(), gothUser.Email)
+				user, err = s.User.GetByEmail(r.Context(), gothUser.Email, tx)
 				if err != nil {
 					writeJSONError(w, http.StatusInternalServerError, err.Error())
 					return
@@ -386,9 +402,9 @@ func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
 		}
 
 		// User exists, update OAuth provider and ID
-		if user.OAuthProvider == "" || user.OAuthProvider != gothUser.Provider {
-			user.OAuthProvider = gothUser.Provider
-			user.OAuthID = gothUser.UserID
+		if !user.OAuthProvider.Valid || user.OAuthProvider.String != gothUser.Provider {
+			user.OAuthProvider = auth.NewNullString(gothUser.Provider)
+			user.OAuthID = auth.NewNullString(gothUser.UserID)
 			user.EmailVerified = true
 			user, err = s.User.Update(r.Context(), user, tx)
 			if err != nil {
@@ -398,9 +414,9 @@ func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
 		}
 
 		// Update avatar URL if it's from OAuth provider or not set
-		if user.AvatarSource == "" || user.AvatarSource == "oauth" {
-			user.AvatarURL = gothUser.AvatarURL
-			user.AvatarSource = "oauth"
+		if !user.AvatarSource.Valid || user.AvatarSource.String == "oauth" {
+			user.AvatarURL = auth.NewNullString(gothUser.AvatarURL)
+			user.AvatarSource = auth.NewNullString("oauth")
 			user, err = s.User.Update(r.Context(), user, tx)
 			if err != nil {
 				writeJSONError(w, http.StatusInternalServerError, err.Error())
@@ -428,6 +444,150 @@ func oauthCallbackHandler(s *store.Storage) http.HandlerFunc {
 		}
 
 		http.SetCookie(w, auth.NewSessionCookie(token))
+
+		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "User logged in successfully"})
+	}
+}
+
+func initMagicLinkSignIn(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
+	type request struct {
+		Email string `json:"email" validate:"required,email"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		sessionCookie, err := r.Cookie("session")
+		if err == nil {
+			_, err := s.Session.Validate(r.Context(), sessionCookie.Value)
+			if err == nil {
+				writeJSONError(w, http.StatusBadRequest, "User already logged in")
+				return
+			}
+		}
+
+		req := &request{}
+		if err := readAndValidateJSON(w, r, req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		tx, err := s.Transaction.Begin()
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		defer func(tx *sqlx.Tx) {
+			if err != nil {
+				s.Transaction.Rollback(tx)
+			}
+		}(tx)
+
+		verificationToken, err := s.Verification.Create(
+			r.Context(),
+			store.NewVerification(
+				auth.MagicLinkIntent,
+				auth.NewNullString(req.Email),
+				nil,
+			),
+			tx,
+		)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		if err = m.SendMagicLinkEmail(req.Email, verificationToken); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		if err = s.Transaction.Commit(tx); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "Magic link sent"})
+	}
+}
+
+func completeMagicLinkSignIn(s *store.Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tokenStr := chi.URLParam(r, "token")
+
+		if tokenStr == "" {
+			writeJSONError(w, http.StatusBadRequest, "Token is required")
+			return
+		}
+
+		verificationToken, err := s.Verification.Validate(r.Context(), tokenStr, auth.MagicLinkIntent)
+
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "Invalid token")
+			return
+		}
+
+		// Email is required for magic link sign in to make sure we can create a user if it doesn't exist and find user by email if it does
+		if !verificationToken.Email.Valid {
+			writeJSONError(w, http.StatusBadRequest, "Invalid token")
+		}
+
+		user, err := s.User.GetByEmail(r.Context(), verificationToken.Email.String, nil)
+
+		tx, err := s.Transaction.Begin()
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+		}
+
+		defer func(tx *sqlx.Tx) {
+			if err != nil {
+				s.Transaction.Rollback(tx)
+			}
+		}(tx)
+
+		if err != nil {
+			// User does not exist, register the user with the email passed in the query string
+			if err == store.ErrNotFound {
+				user = store.NewUser(
+					verificationToken.Email.String,
+					true,
+					nil,
+					nil,
+					nil,
+					nil,
+				)
+				if err = s.User.Create(r.Context(), user, tx); err != nil {
+					writeJSONError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+
+				user, err = s.User.GetByEmail(r.Context(), verificationToken.Email.String, tx)
+				if err != nil {
+					writeJSONError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+			} else {
+				writeJSONError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+
+		sessionToken, err := s.Session.Create(r.Context(), &store.Session{
+			UserID:    user.ID,
+			IPAddress: r.RemoteAddr,
+			UserAgent: r.UserAgent(),
+			ExpiresAt: time.Now().Add(24 * time.Hour),
+		}, tx)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		err = s.Transaction.Commit(tx)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		cookie := auth.NewSessionCookie(sessionToken)
+		http.SetCookie(w, cookie)
 
 		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "User logged in successfully"})
 	}

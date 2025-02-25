@@ -2,7 +2,10 @@ package auth
 
 import (
 	"crypto/rand"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -20,6 +23,110 @@ const (
 	SessionTokenBytes = 32
 	EmailTokenBytes   = 64
 )
+
+type VerificationIntent int
+
+const (
+	PasswordResetIntent VerificationIntent = iota
+	EmailVerificationIntent
+	OneTimePasswordIntent
+	MagicLinkIntent
+)
+
+var verificationIntentToString = map[VerificationIntent]string{
+	PasswordResetIntent:     "password_reset",
+	EmailVerificationIntent: "email_verification",
+	OneTimePasswordIntent:   "one_time_password",
+	MagicLinkIntent:         "magic_link",
+}
+
+var stringToVerificationIntent = map[string]VerificationIntent{
+	"password_reset":     PasswordResetIntent,
+	"email_verification": EmailVerificationIntent,
+	"one_time_password":  OneTimePasswordIntent,
+	"magic_link":         MagicLinkIntent,
+}
+
+func (v VerificationIntent) String() string {
+	if str, ok := verificationIntentToString[v]; ok {
+		return str
+	}
+	return "unknown"
+}
+
+func (v VerificationIntent) MarshalJSON() ([]byte, error) {
+	return json.Marshal(v.String())
+}
+
+func (v *VerificationIntent) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return err
+	}
+
+	intent, ok := stringToVerificationIntent[str]
+	if !ok {
+		return errors.New("invalid VerificationIntent value")
+	}
+
+	*v = intent
+	return nil
+}
+
+func (v VerificationIntent) Value() (driver.Value, error) {
+	str := v.String()
+	if str == "unknown" {
+		return "", errors.New("invalid VerificationIntent value")
+	}
+	return str, nil
+}
+
+func (v *VerificationIntent) Scan(value interface{}) error {
+	switch i := value.(type) {
+	case string:
+		*v = stringToVerificationIntent[i]
+		return nil
+	case []byte:
+		*v = stringToVerificationIntent[string(i)]
+		return nil
+	default:
+		return errors.New("invalid VerificationIntent scan source")
+	}
+}
+
+// Custom type to handle JSON null properly
+type NullString struct {
+	sql.NullString
+}
+
+func (ns NullString) MarshalJSON() ([]byte, error) {
+	if !ns.Valid {
+		return []byte("null"), nil
+	}
+	return json.Marshal(ns.String)
+}
+
+func (ns *NullString) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		ns.String = ""
+		ns.Valid = false
+		return nil
+	}
+	ns.Valid = true
+	return json.Unmarshal(data, &ns.String)
+}
+
+func (ns *NullString) Scan(value interface{}) error {
+	return ns.NullString.Scan(value)
+}
+
+func (ns NullString) Value() (driver.Value, error) {
+	return ns.NullString.Value()
+}
+
+func NewNullString(s string) *NullString {
+	return &NullString{sql.NullString{String: s, Valid: s != ""}}
+}
 
 type Hashed []byte
 
