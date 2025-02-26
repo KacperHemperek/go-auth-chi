@@ -1,22 +1,16 @@
 package main
 
 import (
-	"errors"
 	"testing"
 
-	"github.com/golang-migrate/migrate/v4"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestIntegration_Init(t *testing.T) {
-	_ = Setup(t)
+func TestIntegration_StartApplication(t *testing.T) {
+	app, dbCtr := Setup(t)
 
-	t.Cleanup(func() {
-		if err := RunDownMigrations(); err != nil {
-			if errors.Is(err, migrate.ErrNoChange) {
-				return
-			}
-			t.Errorf("Error in cleanup: %v", err)
-		}
+	assert.NotNil(t, dbCtr)
+	assert.NotNil(t, app)
 
-	})
+	Cleanup(t, dbCtr)
 }

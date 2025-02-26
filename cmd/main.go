@@ -113,11 +113,7 @@ func (a *App) Run() {
 	http.ListenAndServe(port, r)
 }
 
-func NewApp() (*App, error) {
-	env, err := NewEnv()
-	if err != nil {
-		return nil, err
-	}
+func NewApp(env *env) (*App, error) {
 
 	db, err := db.NewPostgres(env.DSN)
 	if err != nil {
@@ -136,7 +132,11 @@ func NewApp() (*App, error) {
 }
 
 func main() {
-	if app, err := NewApp(); err != nil {
+	env, err := NewEnv()
+	if err != nil {
+		log.Fatalf("Could not load environment variables: %e", err)
+	}
+	if app, err := NewApp(env); err != nil {
 		log.Fatalf("Could not start application: %e", err)
 	} else {
 		app.Run()
