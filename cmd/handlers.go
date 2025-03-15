@@ -109,7 +109,7 @@ func registerHandler(s *store.Storage, m mailer.Mailer) http.HandlerFunc {
 		cookie := auth.NewSessionCookie(token)
 		http.SetCookie(w, cookie)
 
-		writeJSONResponse(w, http.StatusOK, map[string]any{"message": "User registered successfully"})
+		writeJSONResponse(w, http.StatusCreated, map[string]any{"message": "User registered successfully"})
 	}
 
 }

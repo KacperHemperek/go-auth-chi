@@ -15,50 +15,31 @@ import (
 	"github.com/markbates/goth/gothic"
 	"github.com/markbates/goth/providers/github"
 	"github.com/markbates/goth/providers/google"
-	"github.com/spf13/viper"
 )
-
-type env struct {
-	BaseURL            string
-	Port               int
-	SessionSecret      string
-	DSN                string
-	GoogleClientSecret string
-	GoogleClientID     string
-	GithubClientSecret string
-	GithubClientID     string
-}
-
-func NewEnv() (*env, error) {
-	viper.SetConfigFile(".env")
-	viper.SetDefault("BASE_URL", "http://localhost:8080")
-	viper.SetDefault("PORT", "8080")
-	viper.SetDefault("SESSION_SECRET", "change-me")
-	viper.SetDefault("DSN", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")
-
-	if err := viper.ReadInConfig(); err != nil {
-		return nil, err
-	}
-
-	return &env{
-		BaseURL:            viper.GetString("BASE_URL"),
-		Port:               viper.GetInt("PORT"),
-		SessionSecret:      viper.GetString("SESSION_SECRET"),
-		DSN:                viper.GetString("DSN"),
-		GoogleClientSecret: viper.GetString("GOOGLE_CLIENT_SECRET"),
-		GoogleClientID:     viper.GetString("GOOGLE_CLIENT_ID"),
-		GithubClientSecret: viper.GetString("GITHUB_CLIENT_SECRET"),
-		GithubClientID:     viper.GetString("GITHUB_CLIENT_ID"),
-	}, nil
-}
 
 type App struct {
 	storage *store.Storage
 	mailer  mailer.Mailer
-	env     *env
+	env     *Env
 }
 
 func (a *App) Router() *chi.Mux {
+	gothic.GetProviderName = func(r *http.Request) (string, error) {
+		provider := chi.URLParam(r, "provider")
+		if provider == "" {
+			return "", fmt.Errorf("provider is required")
+		}
+		return provider, nil
+	}
+
+	sessionStore := sessions.NewCookieStore([]byte(a.env.SessionSecret))
+	gothic.Store = sessionStore
+
+	goth.UseProviders(
+		google.New(a.env.GoogleClientID, a.env.GoogleClientSecret, fmt.Sprintf("%s/auth/google/callback", a.env.BaseURL), "email", "profile"),
+		github.New(a.env.GithubClientID, a.env.GithubClientSecret, fmt.Sprintf("%s/auth/github/callback", a.env.BaseURL), "user:email"),
+	)
+
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Route("/auth", func(r chi.Router) {
@@ -91,21 +72,6 @@ func (a *App) Router() *chi.Mux {
 }
 
 func (a *App) Run() {
-	gothic.GetProviderName = func(r *http.Request) (string, error) {
-		provider := chi.URLParam(r, "provider")
-		if provider == "" {
-			return "", fmt.Errorf("provider is required")
-		}
-		return provider, nil
-	}
-
-	sessionStore := sessions.NewCookieStore([]byte(a.env.SessionSecret))
-	gothic.Store = sessionStore
-
-	goth.UseProviders(
-		google.New(a.env.GoogleClientID, a.env.GoogleClientSecret, fmt.Sprintf("%s/auth/google/callback", a.env.BaseURL), "email", "profile"),
-		github.New(a.env.GithubClientID, a.env.GithubClientSecret, fmt.Sprintf("%s/auth/github/callback", a.env.BaseURL), "user:email"),
-	)
 	r := a.Router()
 
 	port := fmt.Sprintf(":%d", a.env.Port)
@@ -113,7 +79,7 @@ func (a *App) Run() {
 	http.ListenAndServe(port, r)
 }
 
-func NewApp(env *env) (*App, error) {
+func NewApp(env *Env) (*App, error) {
 
 	db, err := db.NewPostgres(env.DSN)
 	if err != nil {
