@@ -147,12 +147,12 @@ func SetupIntegration(t *testing.T) (*App, *pgContainer.PostgresContainer, *sql.
 
 func CleanupIntegration(t *testing.T, ctr *pgContainer.PostgresContainer, db *sql.DB) {
 	t.Cleanup(func() {
-		if err := testcontainers.TerminateContainer(ctr); err != nil {
-			t.Fatalf("Error in terminating postgres test container: %v", err)
-			return
-		}
 		if err := db.Close(); err != nil {
 			t.Fatalf("Error in closing database connection: %v", err)
+			return
+		}
+		if err := testcontainers.TerminateContainer(ctr); err != nil {
+			t.Fatalf("Error in terminating postgres test container: %v", err)
 			return
 		}
 	})
