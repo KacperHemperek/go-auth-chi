@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,101 +10,144 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type TestUser struct {
+	Email     string
+	Password  string
+	SessionID string
+}
+
+type TestHelper struct {
+	t   *testing.T
+	app *App
+}
+
+func newTestHelper(t *testing.T, app *App) *TestHelper {
+	return &TestHelper{
+		t:   t,
+		app: app,
+	}
+}
+
+// Logout clears any existing session since user is being signed in immediately after registration
+func (th *TestHelper) Logout(rr *httptest.ResponseRecorder) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/auth/logout",
+		nil,
+	)
+	req.AddCookie(th.GetSessionCookie(rr))
+
+	rr = httptest.NewRecorder()
+	th.app.Router().ServeHTTP(rr, req)
+
+	return rr
+}
+
+func (th *TestHelper) GetSessionCookie(rr *httptest.ResponseRecorder) *http.Cookie {
+	cookies := rr.Result().Cookies()
+	for _, cookie := range cookies {
+		if cookie.Name == "session" {
+			return cookie
+		}
+	}
+	return nil
+}
+
+func (th *TestHelper) CreateUser(email, password string) (*TestUser, *httptest.ResponseRecorder) {
+	user := &TestUser{
+		Email:    email,
+		Password: password,
+	}
+
+	body := map[string]string{
+		"email":           email,
+		"password":        password,
+		"confirmPassword": password,
+	}
+	json, err := json.Marshal(body)
+	assert.NoError(th.t, err)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/auth/register",
+		bytes.NewReader(json),
+	)
+	rr := httptest.NewRecorder()
+	th.app.Router().ServeHTTP(rr, req)
+
+	// Set session ID
+	if rr.Code == http.StatusCreated {
+		sessionCookie := th.GetSessionCookie(rr)
+		user.SessionID = sessionCookie.Value
+	}
+
+	return user, rr
+}
+
 func Test_ApplicationStarts(t *testing.T) {
 	app, dbCtr, db := SetupIntegration(t)
+	defer CleanupIntegration(t, dbCtr, db)
 
 	assert.NotNil(t, dbCtr)
 	assert.NotNil(t, app)
-
-	CleanupIntegration(t, dbCtr, db)
 }
 
 func TestIntegration_RegisterUserSuccessful(t *testing.T) {
 	app, dbCtr, db := SetupIntegration(t)
+	defer CleanupIntegration(t, dbCtr, db)
 
-	body := map[string]string{
-		"email":           "kacper.hemperek@o2.pl",
-		"password":        "AmazingPassword123",
-		"confirmPassword": "AmazingPassword123",
-	}
+	helper := newTestHelper(t, app)
+	user, rr := helper.CreateUser("test@example.com", "Password123!")
 
-	// Convert body to io reader
-	json, err := json.Marshal(body)
+	dbUser, err := app.storage.User.GetByEmail(t.Context(), "test@example.com", nil)
 	assert.NoError(t, err)
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/auth/register",
-		bytes.NewReader(json),
-	)
-	rr := httptest.NewRecorder()
-	app.Router().ServeHTTP(rr, req)
+	assert.NotNil(t, dbUser)
+	assert.Equal(t, user.Email, dbUser.Email)
+	assert.True(t, dbUser.Password.Compare("Password123!"))
+	assert.NotEmpty(t, dbUser.ID)
 
-	assert.Equal(t, http.StatusCreated, rr.Code)
+	// Check if the session cookie is set
+	sessionCookie := helper.GetSessionCookie(rr)
 
-	user, err := app.storage.User.GetByEmail(t.Context(), "kacper.hemperek@o2.pl", nil)
-	assert.NoError(t, err)
-	assert.NotNil(t, user)
-	assert.Equal(t, "kacper.hemperek@o2.pl", user.Email)
-	assert.True(t, user.Password.Compare("AmazingPassword123"))
-	assert.NotEmpty(t, user.ID)
-
-	// Check if the session cookie is set and the session is valid
-	sessionCookies := rr.Result().Cookies()
-	fmt.Println(sessionCookies)
-	var sessionCookie *http.Cookie
-	for _, cookie := range sessionCookies {
-		if cookie.Name == "session" {
-			sessionCookie = cookie
-			break
-		}
-	}
 	assert.NotNil(t, sessionCookie)
 	assert.NotEmpty(t, sessionCookie.Value)
-	session, err := app.storage.Session.Validate(t.Context(), sessionCookie.Value)
+
+	// Validate session
+	session, err := app.storage.Session.Validate(t.Context(), user.SessionID)
 	assert.NoError(t, err)
 	assert.NotNil(t, session)
-	assert.Equal(t, user.ID, session.UserID)
-
-	CleanupIntegration(t, dbCtr, db)
+	assert.Equal(t, dbUser.ID, session.UserID)
 }
 
 func TestIntegration_RegisterUserInvalidInput(t *testing.T) {
 	app, dbCtr, db := SetupIntegration(t)
+	defer CleanupIntegration(t, dbCtr, db)
 
-	body := map[string]string{
-		"email":           "kac@per",
-		"password":        "AmazingPassword123",
-		"confirmPassword": "AmazingPassword123",
-	}
-
-	json, err := json.Marshal(body)
-	assert.NoError(t, err)
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/auth/register",
-		bytes.NewReader(json),
-	)
-	rr := httptest.NewRecorder()
-	app.Router().ServeHTTP(rr, req)
+	helper := newTestHelper(t, app)
+	_, rr := helper.CreateUser("test", "short")
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 
-	user, err := app.storage.User.GetByEmail(t.Context(), "kac@per", nil)
+	dbUser, err := app.storage.User.GetByEmail(t.Context(), "test", nil)
 	assert.Error(t, err)
-	assert.Nil(t, user)
+	assert.Nil(t, dbUser)
 
 	cookies := rr.Result().Cookies()
 	assert.Empty(t, cookies)
-
-	CleanupIntegration(t, dbCtr, db)
 }
 
 func TestIntegration_LoginUserSuccessful(t *testing.T) {
 	app, dbCtr, db := SetupIntegration(t)
+	defer CleanupIntegration(t, dbCtr, db)
 
+	helper := newTestHelper(t, app)
+	_, rr := helper.CreateUser("test@example.com", "Password123!")
+	helper.Logout(rr)
+
+	// Login
 	body := map[string]string{
-		"email":    "test@user1.com",
-		"password": "P@ssword123_1",
+		"email":    "test@example.com",
+		"password": "Password123!",
 	}
 	json, err := json.Marshal(body)
 	assert.NoError(t, err)
@@ -114,24 +156,95 @@ func TestIntegration_LoginUserSuccessful(t *testing.T) {
 		"/auth/login",
 		bytes.NewReader(json),
 	)
-	rr := httptest.NewRecorder()
+
+	rr = httptest.NewRecorder()
 	app.Router().ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
-	cookies := rr.Result().Cookies()
-	assert.NotEmpty(t, cookies)
-	var sessCookie *http.Cookie
-	for _, cookie := range cookies {
-		if cookie.Name == "session" {
-			sessCookie = cookie
-			break
-		}
-	}
-	assert.NotNil(t, sessCookie)
-	assert.NotEmpty(t, sessCookie.Value)
-	session, err := app.storage.Session.Validate(t.Context(), sessCookie.Value)
+
+	sessionCookie := helper.GetSessionCookie(rr)
+	assert.NotNil(t, sessionCookie)
+	assert.NotEmpty(t, sessionCookie.Value)
+
+	session, err := app.storage.Session.Validate(t.Context(), sessionCookie.Value)
 	assert.NoError(t, err)
 	assert.NotNil(t, session)
 
-	CleanupIntegration(t, dbCtr, db)
+}
+
+func Test_Integration_LoginUserInvalidInput(t *testing.T) {
+	app, dbCtr, db := SetupIntegration(t)
+	defer CleanupIntegration(t, dbCtr, db)
+
+	helper := newTestHelper(t, app)
+	_, rr := helper.CreateUser("test@example.com", "Password123!")
+	sessionCookie := helper.GetSessionCookie(rr)
+	helper.Logout(rr)
+
+	body := map[string]string{
+		"email":    "test_invalid@example.com",
+		"password": "AmazinglyWrongPassword123",
+	}
+
+	json, err := json.Marshal(body)
+	assert.NoError(t, err)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/auth/login",
+		bytes.NewReader(json),
+	)
+	req.AddCookie(sessionCookie)
+
+	rr = httptest.NewRecorder()
+	app.Router().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+
+}
+
+func TestIntegration_GetUserInfo(t *testing.T) {
+	app, dbCtr, db := SetupIntegration(t)
+	defer CleanupIntegration(t, dbCtr, db)
+
+	helper := newTestHelper(t, app)
+	user, rr := helper.CreateUser("test@example.com", "Password123!")
+	sessionCookie := helper.GetSessionCookie(rr)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/auth/me",
+		nil,
+	)
+	req.AddCookie(sessionCookie)
+
+	rr = httptest.NewRecorder()
+	app.Router().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	response := map[string]interface{}{}
+	err := json.Unmarshal(rr.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, user.Email, response["data"].(map[string]interface{})["user"].(map[string]interface{})["email"])
+
+}
+
+func TestIntegration_LogoutUser(t *testing.T) {
+	app, dbCtr, db := SetupIntegration(t)
+	defer CleanupIntegration(t, dbCtr, db)
+
+	helper := newTestHelper(t, app)
+	_, rr := helper.CreateUser("test@example.com", "Password123!")
+	rr = helper.Logout(rr)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	sessionCookie := helper.GetSessionCookie(rr)
+	assert.NotNil(t, sessionCookie)
+	assert.Equal(t, 0, sessionCookie.MaxAge)
+
+	// Check if the session was deleted
+	session, err := app.storage.Session.Validate(t.Context(), sessionCookie.Value)
+	assert.Error(t, err)
+	assert.Nil(t, session)
 }
