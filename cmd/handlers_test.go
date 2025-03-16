@@ -172,7 +172,7 @@ func TestIntegration_LoginUserSuccessful(t *testing.T) {
 
 }
 
-func Test_Integration_LoginUserInvalidInput(t *testing.T) {
+func TestIntegration_LoginUserInvalidInput(t *testing.T) {
 	app, dbCtr, db := SetupIntegration(t)
 	defer CleanupIntegration(t, dbCtr, db)
 
