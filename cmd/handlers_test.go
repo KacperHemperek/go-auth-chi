@@ -11,9 +11,10 @@ import (
 )
 
 type TestUser struct {
-	Email     string
-	Password  string
-	SessionID string
+	Email         string
+	EmailVerified bool
+	Password      string
+	SessionID     string
 }
 
 type TestHelper struct {
@@ -26,21 +27,6 @@ func newTestHelper(t *testing.T, app *App) *TestHelper {
 		t:   t,
 		app: app,
 	}
-}
-
-// Logout clears any existing session since user is being signed in immediately after registration
-func (th *TestHelper) Logout(rr *httptest.ResponseRecorder) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/auth/logout",
-		nil,
-	)
-	req.AddCookie(th.GetSessionCookie(rr))
-
-	rr = httptest.NewRecorder()
-	th.app.Router().ServeHTTP(rr, req)
-
-	return rr
 }
 
 func (th *TestHelper) GetSessionCookie(rr *httptest.ResponseRecorder) *http.Cookie {
@@ -75,13 +61,67 @@ func (th *TestHelper) CreateUser(email, password string) (*TestUser, *httptest.R
 	rr := httptest.NewRecorder()
 	th.app.Router().ServeHTTP(rr, req)
 
-	// Set session ID
-	if rr.Code == http.StatusCreated {
-		sessionCookie := th.GetSessionCookie(rr)
-		user.SessionID = sessionCookie.Value
+	if rr.Code != http.StatusCreated {
+		th.t.Logf("Registration failed with status %d: %s", rr.Code, rr.Body.String())
+		return nil, rr
 	}
 
+	// Set session ID to the user
+	sessionCookie := th.GetSessionCookie(rr)
+	if sessionCookie == nil {
+		th.t.Error("No session cookie found after successful registration")
+		return user, rr
+	}
+	user.SessionID = sessionCookie.Value
+
 	return user, rr
+}
+
+func (th *TestHelper) LoginUser(email, password string) (*TestUser, *httptest.ResponseRecorder) {
+	user := &TestUser{
+		Email:    email,
+		Password: password,
+	}
+
+	body := map[string]string{
+		"email":    email,
+		"password": password,
+	}
+	json, err := json.Marshal(body)
+	assert.NoError(th.t, err)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/auth/login",
+		bytes.NewReader(json),
+	)
+	rr := httptest.NewRecorder()
+	th.app.Router().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		th.t.Logf("Login failed with status %d: %s", rr.Code, rr.Body.String())
+		return user, rr
+	}
+
+	// Set session ID to the user
+	sessionCookie := th.GetSessionCookie(rr)
+	if sessionCookie == nil {
+		th.t.Error("No session cookie found after successful login")
+		return user, rr
+	}
+	user.SessionID = sessionCookie.Value
+
+	return user, rr
+}
+
+func (th *TestHelper) LoginAs(userType TestUserType) (*TestUser, *httptest.ResponseRecorder) {
+	userData, exists := TestUserData[userType]
+	if !exists {
+		th.t.Fatalf("Test user type %s not found", userType)
+		return nil, nil
+	}
+
+	return th.LoginUser(userData.Email, userData.Password)
 }
 
 func Test_ApplicationStarts(t *testing.T) {
@@ -97,9 +137,9 @@ func TestIntegration_RegisterUserSuccessful(t *testing.T) {
 	defer CleanupIntegration(t, dbCtr, db)
 
 	helper := newTestHelper(t, app)
-	user, rr := helper.CreateUser("test@example.com", "Password123!")
+	user, rr := helper.CreateUser("new_user@example.com", "Password123!")
 
-	dbUser, err := app.storage.User.GetByEmail(t.Context(), "test@example.com", nil)
+	dbUser, err := app.storage.User.GetByEmail(t.Context(), "new_user@example.com", nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, dbUser)
 	assert.Equal(t, user.Email, dbUser.Email)
@@ -108,7 +148,6 @@ func TestIntegration_RegisterUserSuccessful(t *testing.T) {
 
 	// Check if the session cookie is set
 	sessionCookie := helper.GetSessionCookie(rr)
-
 	assert.NotNil(t, sessionCookie)
 	assert.NotEmpty(t, sessionCookie.Value)
 
@@ -141,35 +180,18 @@ func TestIntegration_LoginUserSuccessful(t *testing.T) {
 	defer CleanupIntegration(t, dbCtr, db)
 
 	helper := newTestHelper(t, app)
-	_, rr := helper.CreateUser("test@example.com", "Password123!")
-	helper.Logout(rr)
-
-	// Login
-	body := map[string]string{
-		"email":    "test@example.com",
-		"password": "Password123!",
-	}
-	json, err := json.Marshal(body)
-	assert.NoError(t, err)
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/auth/login",
-		bytes.NewReader(json),
-	)
-
-	rr = httptest.NewRecorder()
-	app.Router().ServeHTTP(rr, req)
+	user, rr := helper.LoginAs(DefaultUser)
+	sessionCookie := helper.GetSessionCookie(rr)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
-
-	sessionCookie := helper.GetSessionCookie(rr)
+	assert.NotEmpty(t, user.SessionID)
+	assert.Equal(t, user.SessionID, sessionCookie.Value)
 	assert.NotNil(t, sessionCookie)
 	assert.NotEmpty(t, sessionCookie.Value)
 
-	session, err := app.storage.Session.Validate(t.Context(), sessionCookie.Value)
+	session, err := app.storage.Session.Validate(t.Context(), user.SessionID)
 	assert.NoError(t, err)
 	assert.NotNil(t, session)
-
 }
 
 func TestIntegration_LoginUserInvalidInput(t *testing.T) {
@@ -177,29 +199,14 @@ func TestIntegration_LoginUserInvalidInput(t *testing.T) {
 	defer CleanupIntegration(t, dbCtr, db)
 
 	helper := newTestHelper(t, app)
-	_, rr := helper.CreateUser("test@example.com", "Password123!")
-	sessionCookie := helper.GetSessionCookie(rr)
-	helper.Logout(rr)
-
-	body := map[string]string{
-		"email":    "test_invalid@example.com",
-		"password": "AmazinglyWrongPassword123",
-	}
-
-	json, err := json.Marshal(body)
-	assert.NoError(t, err)
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/auth/login",
-		bytes.NewReader(json),
-	)
-	req.AddCookie(sessionCookie)
-
-	rr = httptest.NewRecorder()
-	app.Router().ServeHTTP(rr, req)
-
+	_, rr := helper.LoginUser("test", "short")
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 
+	_, rr = helper.LoginUser("test_invalid@example.com", "WrongP@assword")
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+
+	cookies := rr.Result().Cookies()
+	assert.Empty(t, cookies)
 }
 
 func TestIntegration_GetUserInfo(t *testing.T) {
@@ -207,7 +214,7 @@ func TestIntegration_GetUserInfo(t *testing.T) {
 	defer CleanupIntegration(t, dbCtr, db)
 
 	helper := newTestHelper(t, app)
-	user, rr := helper.CreateUser("test@example.com", "Password123!")
+	user, rr := helper.LoginAs(DefaultUser)
 	sessionCookie := helper.GetSessionCookie(rr)
 
 	req := httptest.NewRequest(
@@ -221,12 +228,12 @@ func TestIntegration_GetUserInfo(t *testing.T) {
 	app.Router().ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.NotNil(t, sessionCookie)
 
-	response := map[string]interface{}{}
+	var response map[string]any
 	err := json.Unmarshal(rr.Body.Bytes(), &response)
 	assert.NoError(t, err)
-	assert.Equal(t, user.Email, response["data"].(map[string]interface{})["user"].(map[string]interface{})["email"])
-
+	assert.Equal(t, user.Email, response["data"].(map[string]any)["user"].(map[string]any)["email"])
 }
 
 func TestIntegration_LogoutUser(t *testing.T) {
@@ -234,8 +241,17 @@ func TestIntegration_LogoutUser(t *testing.T) {
 	defer CleanupIntegration(t, dbCtr, db)
 
 	helper := newTestHelper(t, app)
-	_, rr := helper.CreateUser("test@example.com", "Password123!")
-	rr = helper.Logout(rr)
+	_, rr := helper.LoginAs(DefaultUser)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/auth/logout",
+		nil,
+	)
+	req.AddCookie(helper.GetSessionCookie(rr))
+
+	rr = httptest.NewRecorder()
+	app.Router().ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
 
