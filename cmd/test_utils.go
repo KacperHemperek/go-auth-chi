@@ -79,27 +79,64 @@ func CreateTestPostgres(ctx context.Context) (*sql.DB, *pgContainer.PostgresCont
 	return db, ctr, err
 }
 
+type TestUserType string
+
+const (
+	DefaultUser    TestUserType = "default"
+	UnverifiedUser TestUserType = "unverified"
+	NoPasswordUser TestUserType = "no_password"
+)
+
+var TestUserData = map[TestUserType]struct {
+	Email         string
+	Password      string
+	EmailVerified bool
+}{
+	DefaultUser: {
+		Email:         "test@example.com",
+		Password:      "P@ssword123_0",
+		EmailVerified: true,
+	},
+	UnverifiedUser: {
+		Email:         "unverified@example.com",
+		Password:      "P@ssword123_1",
+		EmailVerified: false,
+	},
+	NoPasswordUser: {
+		Email:         "no_password@example.com",
+		Password:      "",
+		EmailVerified: true,
+	},
+}
+
 func PopulateDB(ctx context.Context, db *sql.DB) error {
-	// Users
-	defaultPassword := "P@ssword123_"
-	hashedPasswords := make([]auth.Hashed, 3)
-	// Hash the passwords to later put them in the database
-	for i, password := range hashedPasswords {
-		pStr := fmt.Sprintf("%s%d", defaultPassword, i+1)
-		password.Set(pStr)
+	var defaultUserPassword auth.Hashed
+	if err := defaultUserPassword.Set(TestUserData[DefaultUser].Password); err != nil {
+		return fmt.Errorf("failed to hash password for user %s: %w", TestUserData[DefaultUser].Email, err)
 	}
-	emptyPassword := auth.Hashed{}
-	// Insert the users into the database
-	q := `
-		INSERT INTO users (email, avatar_source, password) VALUES
-		('test@user1.com', null, $1), 
-		('test@user2.com', null, $2), 
-		('test@user3.com', null, $3),
-		('no_pass@user.com', null, $4)
-		`
-	_, err := db.ExecContext(ctx, q, hashedPasswords[0], hashedPasswords[1], hashedPasswords[2], emptyPassword)
+
+	var unverifiedUserPassword auth.Hashed
+	if err := unverifiedUserPassword.Set(TestUserData[UnverifiedUser].Password); err != nil {
+		return fmt.Errorf("failed to hash password for user %s: %w", TestUserData[UnverifiedUser].Email, err)
+	}
+
+	var noPasswordUserPassword auth.Hashed
+	if err := noPasswordUserPassword.Set(TestUserData[NoPasswordUser].Password); err != nil {
+		return fmt.Errorf("failed to hash password for user %s: %w", TestUserData[NoPasswordUser].Email, err)
+	}
+
+	query := `
+	INSERT INTO users (email, password, email_verified) 
+	VALUES ($1, $2, $3), ($4, $5, $6), ($7, $8, $9)
+`
+
+	_, err := db.ExecContext(ctx, query,
+		TestUserData[DefaultUser].Email, defaultUserPassword, TestUserData[DefaultUser].EmailVerified,
+		TestUserData[UnverifiedUser].Email, unverifiedUserPassword, TestUserData[UnverifiedUser].EmailVerified,
+		TestUserData[NoPasswordUser].Email, noPasswordUserPassword, TestUserData[NoPasswordUser].EmailVerified,
+	)
 	if err != nil {
-		return fmt.Errorf("could not insert test users data %w", err)
+		return fmt.Errorf("could not insert test users data: %w", err)
 	}
 
 	return nil
