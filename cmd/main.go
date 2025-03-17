@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/sessions"
@@ -23,7 +28,7 @@ type App struct {
 	env     *Env
 }
 
-func (a *App) Router() *chi.Mux {
+func (a *App) SetupGoth() {
 	gothic.GetProviderName = func(r *http.Request) (string, error) {
 		provider := chi.URLParam(r, "provider")
 		if provider == "" {
@@ -39,6 +44,18 @@ func (a *App) Router() *chi.Mux {
 		google.New(a.env.GoogleClientID, a.env.GoogleClientSecret, fmt.Sprintf("%s/auth/google/callback", a.env.BaseURL), "email", "profile"),
 		github.New(a.env.GithubClientID, a.env.GithubClientSecret, fmt.Sprintf("%s/auth/github/callback", a.env.BaseURL), "user:email"),
 	)
+}
+
+func (a *App) GinRouter() *gin.Engine {
+	a.SetupGoth()
+
+	r := gin.Default()
+
+	return r
+}
+
+func (a *App) Router() *chi.Mux {
+	a.SetupGoth()
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -72,11 +89,30 @@ func (a *App) Router() *chi.Mux {
 }
 
 func (a *App) Run() {
-	r := a.Router()
+	// r := a.Router()
+	r := a.GinRouter()
 
 	port := fmt.Sprintf(":%d", a.env.Port)
 	fmt.Printf("Server is running on port %s\n", port)
-	http.ListenAndServe(port, r)
+	s := &http.Server{
+		Addr:    port,
+		Handler: r,
+	}
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt)
+	go func() {
+		if err := s.ListenAndServe(); err != nil {
+			log.Fatalf("Could not start server: %e", err)
+		}
+	}()
+	<-quit
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := s.Shutdown(ctx); err != nil {
+		log.Fatal("Server forced to shutdown:", err)
+	}
+	fmt.Println("Shutting down server...")
 }
 
 func NewApp(env *Env) (*App, error) {
