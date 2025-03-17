@@ -13,5 +13,7 @@ migrate-up:
 migrate-down:
 	@migrate -database postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable -path $(MIGRATIONS_PATH) down
 	
-
+.PHONY: test
+test:
+	@go test -v ./...
 

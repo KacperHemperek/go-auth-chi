@@ -15,23 +15,15 @@ import (
 	"github.com/markbates/goth/gothic"
 	"github.com/markbates/goth/providers/github"
 	"github.com/markbates/goth/providers/google"
-	"github.com/spf13/viper"
 )
 
-func init() {
-	viper.SetConfigFile(".env")
-	viper.SetDefault("BASE_URL", "http://localhost:8080")
-	viper.SetDefault("PORT", "8080")
-	viper.SetDefault("SESSION_SECRET", "change-me")
-	viper.SetDefault("DSN", "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable")
-
-	if err := viper.ReadInConfig(); err != nil {
-		log.Fatalf("Error reading config file: %v", err)
-		return
-	}
+type App struct {
+	storage *store.Storage
+	mailer  mailer.Mailer
+	env     *Env
 }
 
-func main() {
+func (a *App) Router() *chi.Mux {
 	gothic.GetProviderName = func(r *http.Request) (string, error) {
 		provider := chi.URLParam(r, "provider")
 		if provider == "" {
@@ -40,53 +32,79 @@ func main() {
 		return provider, nil
 	}
 
-	sessionStore := sessions.NewCookieStore([]byte(viper.GetString("SESSION_SECRET")))
+	sessionStore := sessions.NewCookieStore([]byte(a.env.SessionSecret))
 	gothic.Store = sessionStore
 
 	goth.UseProviders(
-		google.New(viper.GetString("GOOGLE_CLIENT_ID"), viper.GetString("GOOGLE_CLIENT_SECRET"), fmt.Sprintf("%s/auth/google/callback", viper.GetString("BASE_URL")), "email", "profile"),
-		github.New(viper.GetString("GITHUB_CLIENT_ID"), viper.GetString("GITHUB_CLIENT_SECRET"), fmt.Sprintf("%s/auth/github/callback", viper.GetString("BASE_URL")), "user:email"),
+		google.New(a.env.GoogleClientID, a.env.GoogleClientSecret, fmt.Sprintf("%s/auth/google/callback", a.env.BaseURL), "email", "profile"),
+		github.New(a.env.GithubClientID, a.env.GithubClientSecret, fmt.Sprintf("%s/auth/github/callback", a.env.BaseURL), "user:email"),
 	)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
+	r.Route("/auth", func(r chi.Router) {
+		// Email verification routes
+		r.Post("/register", registerHandler(a.storage, a.mailer))
+		r.Post("/login", loginHandler(a.storage))
+		r.Put("/verify/{token}", verifyEmail(a.storage))
 
-	db, err := db.NewPostgres(viper.GetString("DSN"))
+		// OAuth routes for authentication
+		r.Get("/{provider}", gothic.BeginAuthHandler)
+		r.Get("/{provider}/callback", oauthCallbackHandler(a.storage))
+
+		// Magic link routes
+		r.Post("/magic-link", initMagicLinkSignIn(a.storage, a.mailer))
+		r.Get("/magic-link/{token}", completeMagicLinkSignIn(a.storage))
+
+		// Password reset routes
+		r.Post("/reset-password", initPasswordReset(a.storage, a.mailer))
+		r.Put("/reset-password/{token}", completePasswordReset(a.storage, a.mailer))
+
+		// Protected routes
+		r.Group(func(r chi.Router) {
+			r.Use(authMiddleware(a.storage))
+			r.Get("/me", getMeHandler())
+			r.Post("/logout", logoutHandler(a.storage))
+		})
+	})
+
+	return r
+}
+
+func (a *App) Run() {
+	r := a.Router()
+
+	port := fmt.Sprintf(":%d", a.env.Port)
+	fmt.Printf("Server is running on port %s\n", port)
+	http.ListenAndServe(port, r)
+}
+
+func NewApp(env *Env) (*App, error) {
+
+	db, err := db.NewPostgres(env.DSN)
 	if err != nil {
 		fmt.Println("Error connecting to the database")
 		fmt.Println(err)
-		return
+		return nil, err
 	}
 	storage := store.NewStorage(db)
 	mailer := mailer.New()
 
-	r.Route("/auth", func(r chi.Router) {
-		// Email verification routes
-		r.Post("/register", registerHandler(storage, mailer))
-		r.Post("/login", loginHandler(storage))
-		r.Put("/verify/{token}", verifyEmail(storage))
+	return &App{
+		storage: storage,
+		mailer:  mailer,
+		env:     env,
+	}, nil
+}
 
-		// OAuth routes for authentication
-		r.Get("/{provider}", gothic.BeginAuthHandler)
-		r.Get("/{provider}/callback", oauthCallbackHandler(storage))
-
-		// Magic link routes
-		r.Post("/magic-link", initMagicLinkSignIn(storage, mailer))
-		r.Get("/magic-link/{token}", completeMagicLinkSignIn(storage))
-
-		// Password reset routes
-		r.Post("/reset-password", initPasswordReset(storage, mailer))
-		r.Put("/reset-password/{token}", completePasswordReset(storage, mailer))
-
-		// Protected routes
-		r.Group(func(r chi.Router) {
-			r.Use(authMiddleware(storage))
-			r.Get("/me", getMeHandler())
-			r.Post("/logout", logoutHandler(storage))
-		})
-	})
-
-	port := ":" + viper.GetString("PORT")
-	fmt.Printf("Server is running on port %s\n", port)
-	http.ListenAndServe(port, r)
+func main() {
+	env, err := NewEnv()
+	if err != nil {
+		log.Fatalf("Could not load environment variables: %e", err)
+	}
+	if app, err := NewApp(env); err != nil {
+		log.Fatalf("Could not start application: %e", err)
+	} else {
+		app.Run()
+	}
 }
