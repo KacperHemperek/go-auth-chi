@@ -11,6 +11,29 @@ import (
 // JSON
 var Validate *validator.Validate
 
+type ErrEnvelope struct {
+	Error string `json:"error"`
+}
+
+func NewErrEnvelope(err any) *ErrEnvelope {
+	switch err := err.(type) {
+	case string:
+		return &ErrEnvelope{Error: err}
+	case error:
+		return &ErrEnvelope{Error: err.Error()}
+	default:
+		return &ErrEnvelope{Error: "Internal server error"}
+	}
+}
+
+type DataEnvelope struct {
+	Data any `json:"data"`
+}
+
+func NewDataEnvelope(data any) *DataEnvelope {
+	return &DataEnvelope{Data: data}
+}
+
 func init() {
 	Validate = validator.New(validator.WithRequiredStructEnabled())
 }
@@ -44,11 +67,7 @@ func readJSON(w http.ResponseWriter, r *http.Request, data any) error {
 }
 
 func writeJSONError(w http.ResponseWriter, status int, message string) error {
-	type envelope struct {
-		Error string `json:"error"`
-	}
-
-	return writeJSON(w, status, &envelope{Error: message})
+	return writeJSON(w, status, NewErrEnvelope(message))
 }
 
 func writeJSONResponse(w http.ResponseWriter, status int, data any) error {

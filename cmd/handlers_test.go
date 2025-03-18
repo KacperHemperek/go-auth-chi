@@ -59,7 +59,7 @@ func (th *TestHelper) CreateUser(email, password string) (*TestUser, *httptest.R
 		bytes.NewReader(json),
 	)
 	rr := httptest.NewRecorder()
-	th.app.Router().ServeHTTP(rr, req)
+	th.app.GinRouter().ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusCreated {
 		th.t.Logf("Registration failed with status %d: %s", rr.Code, rr.Body.String())
@@ -72,6 +72,7 @@ func (th *TestHelper) CreateUser(email, password string) (*TestUser, *httptest.R
 		th.t.Error("No session cookie found after successful registration")
 		return user, rr
 	}
+	assert.NotEmptyf(th.t, sessionCookie.Value, "Session cookie should not be empty after registration")
 	user.SessionID = sessionCookie.Value
 
 	return user, rr
@@ -154,7 +155,7 @@ func TestIntegration_RegisterUserSuccessful(t *testing.T) {
 	// Validate session
 	session, err := app.storage.Session.Validate(t.Context(), user.SessionID)
 	assert.NoError(t, err)
-	assert.NotNil(t, session)
+	assert.NotNilf(t, session, "Session not found for user %s", user.Email)
 	assert.Equal(t, dbUser.ID, session.UserID)
 }
 

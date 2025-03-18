@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -50,6 +51,23 @@ func (a *App) GinRouter() *gin.Engine {
 	a.SetupGoth()
 
 	r := gin.Default()
+
+	authRouter := r.Group("/auth")
+
+	authRouter.POST("/register", gin.WrapF(registerHandler(a.storage, a.mailer)))
+	authRouter.POST("/login", gin.WrapF(loginHandler(a.storage)))
+	authRouter.PUT("/verify/:token", gin.WrapF(verifyEmail(a.storage)))
+	authRouter.GET("/:provider", gin.WrapF(gothic.BeginAuthHandler))
+	authRouter.GET("/:provider/callback", gin.WrapF(oauthCallbackHandler(a.storage)))
+	authRouter.POST("/magic-link", gin.WrapF(initMagicLinkSignIn(a.storage, a.mailer)))
+	authRouter.GET("/magic-link/:token", gin.WrapF(completeMagicLinkSignIn(a.storage)))
+	authRouter.POST("/reset-password", gin.WrapF(initPasswordReset(a.storage, a.mailer)))
+	authRouter.PUT("/reset-password/:token", gin.WrapF(completePasswordReset(a.storage, a.mailer)))
+
+	protectedRouter := r.Group("/auth")
+	protectedRouter.Use(ginMiddleware(authMiddleware(a.storage)))
+	protectedRouter.GET("/me", gin.WrapF(getMeHandler()))
+	protectedRouter.POST("/logout", gin.WrapF(logoutHandler(a.storage)))
 
 	return r
 }
@@ -99,7 +117,7 @@ func (a *App) Run() {
 		Handler: r,
 	}
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		if err := s.ListenAndServe(); err != nil {
 			log.Fatalf("Could not start server: %e", err)
