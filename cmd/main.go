@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/sessions"
+	"github.com/gwatts/gin-adapter"
 	"github.com/kacperhemperek/go-auth-chi/internal/db"
 	"github.com/kacperhemperek/go-auth-chi/internal/mailer"
 	"github.com/kacperhemperek/go-auth-chi/internal/store"
@@ -54,18 +55,26 @@ func (a *App) GinRouter() *gin.Engine {
 
 	authRouter := r.Group("/auth")
 
+	// Email verification routes
 	authRouter.POST("/register", gin.WrapF(registerHandler(a.storage, a.mailer)))
 	authRouter.POST("/login", gin.WrapF(loginHandler(a.storage)))
 	authRouter.PUT("/verify/:token", gin.WrapF(verifyEmail(a.storage)))
+
+	// OAuth routes for authentication
 	authRouter.GET("/:provider", gin.WrapF(gothic.BeginAuthHandler))
 	authRouter.GET("/:provider/callback", gin.WrapF(oauthCallbackHandler(a.storage)))
+
+	// Magic link routes
 	authRouter.POST("/magic-link", gin.WrapF(initMagicLinkSignIn(a.storage, a.mailer)))
 	authRouter.GET("/magic-link/:token", gin.WrapF(completeMagicLinkSignIn(a.storage)))
+
+	// Password reset routes
 	authRouter.POST("/reset-password", gin.WrapF(initPasswordReset(a.storage, a.mailer)))
 	authRouter.PUT("/reset-password/:token", gin.WrapF(completePasswordReset(a.storage, a.mailer)))
 
+	// Protected routes
 	protectedRouter := r.Group("/auth")
-	protectedRouter.Use(ginMiddleware(authMiddleware(a.storage)))
+	protectedRouter.Use(adapter.Wrap(authMiddleware(a.storage)))
 	protectedRouter.GET("/me", gin.WrapF(getMeHandler()))
 	protectedRouter.POST("/logout", gin.WrapF(logoutHandler(a.storage)))
 

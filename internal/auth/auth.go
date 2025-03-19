@@ -161,12 +161,11 @@ func GenerateSecureToken(n int) (string, error) {
 func baseCookie(token string, expiresAt time.Time) *http.Cookie {
 	return &http.Cookie{
 		HttpOnly: true,
-		// TODO: Set to true when running in the production environment and using HTTPS
-		Secure:  false,
-		Value:   token,
-		Expires: expiresAt,
-		Name:    "session",
-		Path:    "/",
+		Secure:   false,
+		Value:    token,
+		Expires:  expiresAt,
+		Name:     "session",
+		Path:     "/",
 	}
 }
 
