@@ -13,6 +13,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/gorilla/sessions"
 	"github.com/gwatts/gin-adapter"
 	"github.com/kacperhemperek/go-auth-chi/internal/db"
@@ -32,7 +34,7 @@ type App struct {
 
 func (a *App) SetupGoth() {
 	gothic.GetProviderName = func(r *http.Request) (string, error) {
-		provider := chi.URLParam(r, "provider")
+		provider := r.URL.Query().Get("provider")
 		if provider == "" {
 			return "", fmt.Errorf("provider is required")
 		}
@@ -43,12 +45,44 @@ func (a *App) SetupGoth() {
 	gothic.Store = sessionStore
 
 	goth.UseProviders(
-		google.New(a.env.GoogleClientID, a.env.GoogleClientSecret, fmt.Sprintf("%s/auth/google/callback", a.env.BaseURL), "email", "profile"),
-		github.New(a.env.GithubClientID, a.env.GithubClientSecret, fmt.Sprintf("%s/auth/github/callback", a.env.BaseURL), "user:email"),
+		google.New(a.env.GoogleClientID, a.env.GoogleClientSecret, fmt.Sprintf("%s/auth/oauth/callback?provider=google", a.env.BaseURL), "email", "profile"),
+		github.New(a.env.GithubClientID, a.env.GithubClientSecret, fmt.Sprintf("%s/auth/oauth/callback?provider=github", a.env.BaseURL), "user:email"),
 	)
 }
 
-func (a *App) GinRouter() *gin.Engine {
+func (a *App) FiberRouter(route fiber.Router) fiber.Router {
+	a.SetupGoth()
+
+	r := route.Group("/")
+
+	authRouter := r.Group("/auth")
+	protectedRouter := r.Group("/auth")
+
+	authRouter.Post("/register", adaptor.HTTPHandlerFunc(registerHandler(a.storage, a.mailer)))
+	authRouter.Post("/login", adaptor.HTTPHandlerFunc(loginHandler(a.storage)))
+	authRouter.Put("/verify/:token", adaptor.HTTPHandlerFunc(verifyEmail(a.storage)))
+
+	// OAuth routes for authentication
+	authRouter.Get("/oauth", adaptor.HTTPHandlerFunc(gothic.BeginAuthHandler))
+	authRouter.Get("/oauth/callback", adaptor.HTTPHandlerFunc(oauthCallbackHandler(a.storage)))
+
+	// Magic link routes
+	authRouter.Post("/magic-link", adaptor.HTTPHandlerFunc(initMagicLinkSignIn(a.storage, a.mailer)))
+	authRouter.Get("/magic-link/:token", adaptor.HTTPHandlerFunc(completeMagicLinkSignIn(a.storage)))
+
+	// Password reset routes
+	authRouter.Post("/reset-password", adaptor.HTTPHandlerFunc(initPasswordReset(a.storage, a.mailer)))
+	authRouter.Put("/reset-password/:token", adaptor.HTTPHandlerFunc(completePasswordReset(a.storage, a.mailer)))
+
+	// Protected routes
+	protectedRouter.Use(adaptor.HTTPMiddleware(authMiddleware(a.storage)))
+	protectedRouter.Get("/me", adaptor.HTTPHandlerFunc(getMeHandler()))
+	protectedRouter.Post("/logout", adaptor.HTTPHandlerFunc(logoutHandler(a.storage)))
+
+	return r
+}
+
+func (a *App) GinRouter() http.Handler {
 	a.SetupGoth()
 
 	r := gin.Default()
@@ -81,7 +115,7 @@ func (a *App) GinRouter() *gin.Engine {
 	return r
 }
 
-func (a *App) Router() *chi.Mux {
+func (a *App) Router() http.Handler {
 	a.SetupGoth()
 
 	r := chi.NewRouter()
@@ -115,9 +149,21 @@ func (a *App) Router() *chi.Mux {
 	return r
 }
 
+func (a *App) RunFiber() {
+	app := fiber.New()
+	authRoute := app.Group("/")
+	_ = a.FiberRouter(authRoute)
+	port := fmt.Sprintf(":%d", a.env.Port)
+	fmt.Printf("Server is running on port %s\n", port)
+	if err := app.Listen(port); err != nil {
+		log.Fatalf("Could not start server: %e", err)
+	}
+}
+
 func (a *App) Run() {
 	// r := a.Router()
 	r := a.GinRouter()
+	// r := a.FiberRouter()
 
 	port := fmt.Sprintf(":%d", a.env.Port)
 	fmt.Printf("Server is running on port %s\n", port)
@@ -168,6 +214,7 @@ func main() {
 	if app, err := NewApp(env); err != nil {
 		log.Fatalf("Could not start application: %e", err)
 	} else {
-		app.Run()
+		// app.Run()
+		app.RunFiber()
 	}
 }
