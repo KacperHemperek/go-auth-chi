@@ -95,8 +95,8 @@ func (a *App) GinRouter() http.Handler {
 	authRouter.PUT("/verify/:token", gin.WrapF(verifyEmail(a.storage)))
 
 	// OAuth routes for authentication
-	authRouter.GET("/:provider", gin.WrapF(gothic.BeginAuthHandler))
-	authRouter.GET("/:provider/callback", gin.WrapF(oauthCallbackHandler(a.storage)))
+	authRouter.GET("/oauth", gin.WrapF(gothic.BeginAuthHandler))
+	authRouter.GET("/oauth/callback", gin.WrapF(oauthCallbackHandler(a.storage)))
 
 	// Magic link routes
 	authRouter.POST("/magic-link", gin.WrapF(initMagicLinkSignIn(a.storage, a.mailer)))
@@ -127,8 +127,8 @@ func (a *App) Router() http.Handler {
 		r.Put("/verify/{token}", verifyEmail(a.storage))
 
 		// OAuth routes for authentication
-		r.Get("/{provider}", gothic.BeginAuthHandler)
-		r.Get("/{provider}/callback", oauthCallbackHandler(a.storage))
+		r.Get("/oatuh", gothic.BeginAuthHandler)
+		r.Get("/oatuh/callback", oauthCallbackHandler(a.storage))
 
 		// Magic link routes
 		r.Post("/magic-link", initMagicLinkSignIn(a.storage, a.mailer))
